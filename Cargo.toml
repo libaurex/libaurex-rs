@@ -1,0 +1,13 @@
+#ffmpeg 7.1.1
+[package]
+name = "libaurex"
+version = "0.1.0"
+edition = "2024"
+
+[build-dependencies]
+cc = "1.2.31"
+vcpkg = "0.2.15"
+
+[dependencies]
+ffmpeg-next = "7.1.0"
+miniaudio = { path = "external/miniaudio" }
