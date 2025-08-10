@@ -1,7 +1,6 @@
 use std::env;
 
-use crate::ffmpeg_test::{play_audio_ffmpeg};
-mod ffmpeg_test;
+use libaurex::engine::play_audio;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -10,7 +9,7 @@ fn main() {
         return;
     }
  
-    let exit_code = play_audio_ffmpeg(&args[1]); 
+    let exit_code = play_audio(&args[1]); 
     println!("Process exited with code {}", exit_code);
     std::process::exit(exit_code);
 }
