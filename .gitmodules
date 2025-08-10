@@ -1,0 +1,3 @@
+[submodule "external/miniaudio_aurex"]
+	path = external/miniaudio_aurex
+	url = https://github.com/libaurex/miniaudio_aurex

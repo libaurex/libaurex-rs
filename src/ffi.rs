@@ -1,5 +1,6 @@
 use ffmpeg_next::{ffi::AVAudioFifo, sys};
 use std::{ffi::c_void, ptr};
+use miniaudio_aurex as miniaudio;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn data_callback(

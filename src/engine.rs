@@ -1,6 +1,7 @@
 use std::{ffi::c_void, io::{self, Read}, ptr};
 use soxr::{format, Soxr};
 use crate::ffi::data_callback;
+use miniaudio_aurex as miniaudio;
 
 #[allow(unused_imports)] //IDK why it thinks I'm not using AVAudioFifo
 use ffmpeg_next::{
