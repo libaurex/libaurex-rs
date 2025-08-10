@@ -3,6 +3,16 @@
 name = "libaurex"
 version = "0.1.0"
 edition = "2024"
+license = "Apache-2.0"
+description = "Cross-platform high-level audio API"
+documentation = "https://docs.rs/libaurex-rs"
+readme = "README.md"
+repository = "https://github.com/libaurex/libaurex-rs"
+keywords = ["audio", "sound", "api"]
+categories = ["multimedia"]
+
+[lib]
+crate-type = ["rlib", "cdylib"]
 
 [build-dependencies]
 cc = "1.2.31"
@@ -11,5 +21,5 @@ vcpkg = "0.2.15"
 [dependencies]
 bytemuck = "1.23.2"
 ffmpeg-next = "7.1.0"
-miniaudio = { path = "external/miniaudio" }
+miniaudio = { path = "external/miniaudio", version = "0.11.22" }
 soxr = "0.6.0"
