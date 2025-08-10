@@ -149,7 +149,7 @@ dependencies = [
  "bytemuck",
  "cc",
  "ffmpeg-next",
- "miniaudio",
+ "miniaudio_aurex",
  "soxr",
  "vcpkg",
 ]
@@ -186,8 +186,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a282da65faaf38286cf3be983213fcf1d2e2a58700e808f83f4ea9a4804bc0"
 
 [[package]]
-name = "miniaudio"
+name = "miniaudio_aurex"
 version = "0.11.22"
+source = "git+https://github.com/libaurex/miniaudio_aurex?rev=6336aba#6336abaeced85c00e1a92a275620f16315a29178"
 
 [[package]]
 name = "minimal-lexical"

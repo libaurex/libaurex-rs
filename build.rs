@@ -1,5 +1,5 @@
 fn main() {
     cc::Build::new()
-        .file("external/miniaudio/src/miniaudio.c")
+        .file("external/miniaudio_aurex/src/miniaudio.c")
         .compile("miniaudio");
 }
