@@ -21,5 +21,5 @@ vcpkg = "0.2.15"
 [dependencies]
 bytemuck = "1.23.2"
 ffmpeg-next = "7.1.0"
-miniaudio_aurex = { git = "https://github.com/libaurex/miniaudio_aurex", rev = "6336aba"}
+miniaudio_aurex = "0.11.22"
 soxr = "0.6.0"
