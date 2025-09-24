@@ -1,6 +1,11 @@
 # libaurex
 libaurex is a cross-platform, low latency, high level audio API written in Rust.
 
+# v0.1.2
+## New Features
+- Async decoding 
+- API redesign, it is now fully object-oriented instead of one bare function.
+
 # Features
 - Native backends for each platform for low latency audio playback via miniaudio.
     - WASAPI for Windows.
@@ -13,13 +18,9 @@ libaurex is a cross-platform, low latency, high level audio API written in Rust.
 - Simple as hell API.
 
 # Documentation
-- Right now, it only has one API, ```play_audio()``` in the engine module. That does exactly what it says. It autodetects your device's sample rate and handles all resampling in-house instead of handing it over to the OS, preserving quality.
-
 - A simple example can be found in the main.rs file.
 
 # Upcoming Features
-- Async decoding. (Right now, it decodes everything first then starts playback.)
-- Bit perfect playback on Windows and Android (will probably have to patch miniaudio for it since it no longer supports exclusive mode, but the resampler is already transparent enough that you won't hear a difference).
 - A full fledged media player API.
 - Streaming support (both disk and HTTPS, right now it loads the entire file in memory, good enough for music but not for let's say, a 12 hour podacast).
 
