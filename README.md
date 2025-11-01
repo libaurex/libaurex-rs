@@ -1,10 +1,10 @@
 # libaurex
 libaurex is a cross-platform, low latency, high level audio API written in Rust.
 
-# v0.1.2
+# v0.1.3
 ## New Features
-- Async decoding 
-- API redesign, it is now fully object-oriented instead of one bare function.
+- The load() function now allows swapping files during playback.
+- Added clear() to drain the buffer and clear player.
 
 # Features
 - Native backends for each platform for low latency audio playback via miniaudio.
