@@ -1,5 +1,6 @@
-use std::{env, time::Instant};
-use std::thread;
+//i know it's janky. just for testing 
+
+use std::{env, thread};
 use std::time::Duration;
 use libaurex::engine::AudioEngine;
 
@@ -14,17 +15,18 @@ fn main() {
     engine.load(&args[1].clone());
     engine.play();
 
-    // thread::sleep(Duration::from_secs(10));
+    thread::sleep(Duration::from_secs(10));
 
+    engine.load(&args[2].clone());
+    engine.play();
 
-    // std::mem::drop(engine);
-    // println!("Changing");
-    // engine = AudioEngine::new().unwrap();
-    // engine.load(&args[2].clone());
-    // engine.play();
+    thread::sleep(Duration::from_secs(10));
+
+    engine.load(&args[3].clone());
+    engine.play();
 
     loop {
-        
+        thread::sleep(Duration::from_secs(1));
     }
     // _ = engine_old::play_audio(&args[1]);
 }
