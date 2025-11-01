@@ -15,7 +15,7 @@ use std::{
     time::Instant,
 };
 
-#[allow(unused_imports)] //IDK why it thinks I'm not using AVAudioFifo
+#[allow(unused_imports)]
 use ffmpeg_next::{self as av, ffi::AVAudioFifo, frame::Audio as AudioFrame, media, sys};
 
 pub struct AudioFifo(pub *mut AVAudioFifo);
@@ -32,7 +32,7 @@ pub enum PlayerState {
 }
 
 enum CMD {
-    Start,
+    Start(String),
 }
 
 pub struct AudioEngine {
@@ -44,7 +44,6 @@ pub struct AudioEngine {
     device_config: miniaudio::ma_device_config,
     initialised: bool,
     tx: Option<Sender<CMD>>,
-    url: Arc<Mutex<Option<String>>>
 }
 
 impl AudioEngine {
@@ -90,31 +89,51 @@ impl AudioEngine {
             device_config: device_config,
             initialised: false,
             tx: None,
-            url: Arc::new(Mutex::new(None))
         };
 
         Ok(engine)
     }
 
+    //Loads files. Automatically stops previous playback if any
     pub fn load(&mut self, file: &str) -> Result<(), i32> {
-        self.url = Arc::new(Mutex::new(Some(file.to_string())));
+        // Clear any existing playback first
+        self.clear()?;
 
-        //Doing it here because and initialised object is needed
+        // Initialize decoder thread if needed
         if !self.initialised {
             let (tx, rx) = mpsc::channel::<CMD>();
             self.tx = Some(tx);
-            self.reinit_device(); //idk why it needs that, it throws some device state error
+            self.reinit_device();
             self.spawn_decoder_thread(rx);
             self.initialised = true;
         }
 
-        println!("Loaded {}", &file);
+        println!("Loading {}", &file);
 
-        _ = self.tx.as_mut().unwrap().send(CMD::Start);
+        _ = self.tx.as_mut().unwrap().send(CMD::Start(file.to_string()));
 
         Ok(())
     }
 
+    //Clears the audio buffer
+    pub fn clear(&mut self) -> Result<(), i32> {
+        // Stop playback if active
+        if *self.state.lock().unwrap() == PlayerState::PLAYING {
+            self.pause()?;
+        }
+
+        // Clear the FIFO buffer
+        unsafe {
+            sys::av_audio_fifo_reset(self.buffer.lock().unwrap().0);
+        }
+
+        *self.state.lock().unwrap() = PlayerState::EMPTY;
+        
+        println!("Cleared audio buffer");
+        Ok(())
+    }
+
+    //Plays
     pub fn play(&mut self) -> Result<(), i32> {
         if *self.state.lock().unwrap() != PlayerState::PLAYING {
             if unsafe { miniaudio::ma_device_start(&mut self.device) }
@@ -129,6 +148,7 @@ impl AudioEngine {
         Ok(())
     }
 
+    //Pauses playback
     pub fn pause(&mut self) -> Result<(), i32> {
         if *self.state.lock().unwrap() != PlayerState::PAUSED {
             if unsafe { miniaudio::ma_device_stop(&mut self.device) }
@@ -143,6 +163,8 @@ impl AudioEngine {
         Ok(())
     }
 
+    // It has this weird quirk, the state gets mangled after querying system rates -> Assertion failed: ma_device_get_state(pDevice) == ma_device_state_starting
+    // So re initializing the device fixes that
     fn reinit_device(&mut self) -> Result<(), i32> {
         unsafe {
             std::mem::drop(self.device);
@@ -156,14 +178,13 @@ impl AudioEngine {
     fn spawn_decoder_thread(&mut self, rx: Receiver<CMD>) -> Result<(), i32> {
         let sample_rate_handle = self.sample_rate.clone();
         let buffer_handle = self.buffer.clone();
-        let url_handle = self.url.clone();
 
         thread::spawn(move || {
             for cmd in rx {
                 match cmd {
-                    CMD::Start => {
-                        let url = <Option<std::string::String> as Clone>::clone(&url_handle.lock().unwrap()).unwrap();
+                    CMD::Start(url) => {
 
+                        //Standard ffmpeg decoding process
                         let mut format_ctx = av::format::input(&url).expect("Failed to open file.");
                         let audio_stream_index = format_ctx
                             .streams()
@@ -184,16 +205,19 @@ impl AudioEngine {
                             .audio()
                             .expect("Failed to open decoder.");
 
+                        
+                        //This is just for sample size conversion since soxr only does resampling
                         let mut resampler = av::software::resampling::Context::get(
                             decoder.format(),
                             decoder.channel_layout(),
                             decoder.rate(),
-                            av::format::Sample::I32(av::format::sample::Type::Packed), //Basically just changing sample format as soxr is only capable of resampling the rate
+                            av::format::Sample::I32(av::format::sample::Type::Packed),
                             decoder.channel_layout(),
                             decoder.rate(),
                         )
                         .expect("Failed to init resampler");
 
+                        //Actual resamppling happens here
                         let mut soxr_resampler = Soxr::<format::Interleaved<i32, 2>>::new(
                             decoder.rate() as f64,
                             *sample_rate_handle.lock().unwrap() as f64,
@@ -214,6 +238,7 @@ impl AudioEngine {
                                 let mut resampled_frame = AudioFrame::empty();
                                 _ = resampler.run(&frame, &mut resampled_frame);
 
+                                //Convert ffmpeg's raw bytes into soxr's required array types
                                 let input_samples: &[[i32; 2]] =
                                     bytemuck::cast_slice(resampled_frame.data(0));
                                 let mut output_buf = vec![
@@ -233,9 +258,10 @@ impl AudioEngine {
                                     res.output_frames,
                                     av::ChannelLayout::STEREO,
                                 );
+                                
+                                //Copy soxr's output to ffmpeg frame bit of a mess cause soxr gives you nice typed arrays but ffmpeg just uses raw bytes
                                 soxr_frame.set_rate(*sample_rate_handle.lock().unwrap() as u32);
 
-                                // Copy the processed samples into the FFmpeg frame
                                 let data_plane = soxr_frame.data_mut(0);
                                 let dst_slice: &mut [[i32; 2]] =
                                     bytemuck::cast_slice_mut(data_plane);
@@ -243,12 +269,8 @@ impl AudioEngine {
                                     .copy_from_slice(&output_buf[..res.output_frames]);
 
                                 unsafe {
-                                    // 1) Get a mutable pointer to the first byte of the frame buffer:
                                     let data_ptr0 =
                                         soxr_frame.data_mut(0).as_mut_ptr() as *mut c_void;
-
-                                    // 2) Build a small array of channel-pointers:
-                                    //Now normally only one pointer would mean mono audio but we are using interleaved pcm so all channels are mashed into one.
                                     let mut data_ptrs: [*mut c_void; 1] = [data_ptr0];
 
                                     let written = sys::av_audio_fifo_write(
@@ -269,5 +291,17 @@ impl AudioEngine {
         });
 
         Ok(())
+    }
+}
+
+impl Drop for AudioEngine {
+    fn drop(&mut self) {
+        let _ = self.pause();
+        unsafe {
+            miniaudio::ma_device_uninit(&mut self.device);
+            if !self.buffer.lock().unwrap().0.is_null() {
+                sys::av_audio_fifo_free(self.buffer.lock().unwrap().0);
+            }
+        }
     }
 }
