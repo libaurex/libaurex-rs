@@ -1,7 +1,11 @@
-use ffmpeg_next::{ffi::AVAudioFifo, sys};
+use ffmpeg_next::{sys};
 use std::{ffi::c_void, ptr, sync::Arc};
 use miniaudio_aurex as miniaudio;
-use crate::engine::AudioFifo;
+
+use crate::engine::{
+    AudioFifo, add_played,
+};
+
 
 #[unsafe(no_mangle)]
 pub extern "C" fn data_callback(
@@ -41,6 +45,11 @@ pub extern "C" fn data_callback(
                 } else {
                     0
                 };
+
+                //Increment global played samples tracker
+                if got > 0 {
+                    add_played(got as u64);
+                }
                 
                 // Zero-fill any remaining frames
                 if got < frame_count as i32 {
