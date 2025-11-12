@@ -49,7 +49,7 @@ impl AudioEngine {
         
         let mut device: miniaudio::ma_device = unsafe { std::mem::zeroed() };
         let buffer_ptr =
-            unsafe { sys::av_audio_fifo_alloc(sys::AVSampleFormat::AV_SAMPLE_FMT_S32, 2, 1) };
+            unsafe { sys::av_audio_fifo_alloc(sys::AVSampleFormat::AV_SAMPLE_FMT_S32, 2, 128_000) };
         let buffer = Arc::new(Mutex::new(AudioFifo(buffer_ptr)));
 
         let mut device_config =
