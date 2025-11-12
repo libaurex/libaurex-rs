@@ -1,7 +1,12 @@
-use crate::ffi::data_callback;
+use crate::{
+    ffi::data_callback, 
+    enums::{PlayerState, CMD, ResamplingQuality},
+    singletons::{get_played}
+};
+
 use ffmpeg_next;
 use miniaudio_aurex::{self as miniaudio, ma_device_config_init};
-use soxr::{Soxr, format};
+use soxr::{Soxr, format::{self}, params::{Interpolation, QualitySpec, RuntimeSpec}};
 
 use std::{
     ffi::c_void,
@@ -10,46 +15,15 @@ use std::{
         Arc, Mutex,
         mpsc::{self, Receiver, Sender},
     },
-    thread::{self},
-    sync::atomic::{AtomicU64, Ordering},
-    sync::LazyLock,
+    thread::{self}
 };
 
 
 #[allow(unused_imports)]
 use ffmpeg_next::{self as av, ffi::AVAudioFifo, frame::Audio as AudioFrame, media, sys};
 
-//Global counter for number of played samples. Used for progress tracking
-pub static PLAYED_SAMPLES: LazyLock<AtomicU64> = LazyLock::new(|| AtomicU64::new(0));
-
-pub fn reset_played (){
-    PLAYED_SAMPLES.store(0, Ordering::Relaxed);
-}
-
-pub fn add_played(samples: u64) {
-    PLAYED_SAMPLES.fetch_add(samples, Ordering::Relaxed);
-}
-
-pub fn get_played() -> u64 {
-    PLAYED_SAMPLES.load(Ordering::Relaxed)
-}
-
 pub struct AudioFifo(pub *mut AVAudioFifo);
-
 unsafe impl Send for AudioFifo {}
-
-#[derive(PartialEq)]
-pub enum PlayerState {
-    LOADING = 0,
-    LOADED,
-    PLAYING,
-    PAUSED,
-    EMPTY,
-}
-
-enum CMD {
-    Start(String),
-}
 
 pub struct AudioEngine {
     device: miniaudio::ma_device,
@@ -61,11 +35,18 @@ pub struct AudioEngine {
     initialised: bool,
     tx: Option<Sender<CMD>>,
     duration: Arc<Mutex<f64>>, //Total duration in seconds, -1.0 if theres nothing to play
-    total_samples: Arc<Mutex<Option<u64>>> // Total samples in current track
+    total_samples: Arc<Mutex<Option<u64>>>, // Total samples in current track
+    resampling_quality: ResamplingQuality
 }
 
 impl AudioEngine {
-    pub fn new() -> Result<Self, i32> {
+    pub fn new(
+        resampling_quality: Option<ResamplingQuality>
+        
+        ) -> Result<Self, i32> {
+
+        let m_resampling_quality = resampling_quality.unwrap_or(ResamplingQuality::High);
+        
         let mut device: miniaudio::ma_device = unsafe { std::mem::zeroed() };
         let buffer_ptr =
             unsafe { sys::av_audio_fifo_alloc(sys::AVSampleFormat::AV_SAMPLE_FMT_S32, 2, 1) };
@@ -98,7 +79,7 @@ impl AudioEngine {
             device.playback.channels, device.sampleRate
         );
 
-        let mut engine = AudioEngine {
+        let engine = AudioEngine {
             device: device,
             buffer: buffer,
             channels: device.playback.channels as i32,
@@ -108,7 +89,8 @@ impl AudioEngine {
             initialised: false,
             tx: None,
             duration: Arc::new(Mutex::new(-1.0)),
-            total_samples: Arc::new(Mutex::new(None))
+            total_samples: Arc::new(Mutex::new(None)),
+            resampling_quality: m_resampling_quality
         };
 
         Ok(engine)
@@ -134,7 +116,7 @@ impl AudioEngine {
 
         println!("Loading {}", &file);
 
-        _ = self.tx.as_mut().unwrap().send(CMD::Start(file.to_string()));
+        _ = self.tx.as_mut().unwrap().send(CMD::Start(file.to_string(), self.resampling_quality));
 
         Ok(())
     }
@@ -200,7 +182,6 @@ impl AudioEngine {
     // So re initializing the device fixes that
     fn reinit_device(&mut self) -> Result<(), i32> {
         unsafe {
-            std::mem::drop(self.device);
             self.device = std::mem::zeroed();
             self.device_config.pUserData = Arc::into_raw(self.buffer.clone()) as *mut c_void;
             miniaudio::ma_device_init(ptr::null_mut(), &self.device_config, &mut self.device);
@@ -208,6 +189,25 @@ impl AudioEngine {
         Ok(())
     }
 
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    // <- DECODING LOGIC ->
     fn spawn_decoder_thread(&mut self, rx: Receiver<CMD>) -> Result<(), i32> {
         let sample_rate_handle = self.sample_rate.clone();
         let buffer_handle = self.buffer.clone();
@@ -217,7 +217,7 @@ impl AudioEngine {
         thread::spawn(move || {
             for cmd in rx {
                 match cmd {
-                    CMD::Start(url) => {
+                    CMD::Start(url, resampling_quality) => {
 
                         //Standard ffmpeg decoding process
                         let mut format_ctx = av::format::input(&url).expect("Failed to open file.");
@@ -261,11 +261,15 @@ impl AudioEngine {
                         .expect("Failed to init resampler");
 
                         //Actual resamppling happens here
-                        let mut soxr_resampler = Soxr::<format::Interleaved<i32, 2>>::new(
-                            decoder.rate() as f64,
-                            sample_rate,
-                        )
-                        .expect("Failed to setup Soxr");
+                        let runtime = RuntimeSpec::new(0)
+                            .with_interpolation(Interpolation::High);
+
+                        let mut soxr_resampler = Soxr::<format::Interleaved<i32, 2>>::new_with_params(
+                            decoder.rate() as f64, 
+                            sample_rate, 
+                            resampling_quality.get_quality_spec().expect("Failed to get quality spec for soxr."),
+                            runtime
+                        ).expect("Failed to setup soxr");
 
                         for (stream, packet) in format_ctx.packets() {
                             if stream.index() != audio_stream_index {

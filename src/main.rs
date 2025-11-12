@@ -3,6 +3,7 @@
 use std::{env, thread};
 use std::time::Duration;
 use libaurex::engine::AudioEngine;
+use libaurex::enums::ResamplingQuality;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -11,7 +12,7 @@ fn main() {
         return;
     }
  
-    let mut engine = AudioEngine::new().unwrap();
+    let mut engine = AudioEngine::new(Some(ResamplingQuality::VeryHigh)).unwrap();
     _ = engine.load(&args[1].clone());
     _ = engine.play();
 
