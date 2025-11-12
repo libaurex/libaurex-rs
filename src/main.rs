@@ -12,21 +12,12 @@ fn main() {
     }
  
     let mut engine = AudioEngine::new().unwrap();
-    engine.load(&args[1].clone());
-    engine.play();
+    _ = engine.load(&args[1].clone());
+    _ = engine.play();
 
-    thread::sleep(Duration::from_secs(10));
-
-    engine.load(&args[2].clone());
-    engine.play();
-
-    thread::sleep(Duration::from_secs(10));
-
-    engine.load(&args[3].clone());
-    engine.play();
 
     loop {
         thread::sleep(Duration::from_secs(1));
+        println!("Progress: {}/{} seconds", engine.get_progress().unwrap(), engine.get_duration());
     }
-    // _ = engine_old::play_audio(&args[1]);
 }
