@@ -2,8 +2,9 @@ use ffmpeg_next::{sys};
 use std::{ffi::c_void, ptr, sync::Arc};
 use miniaudio_aurex as miniaudio;
 
-use crate::engine::{
-    AudioFifo, add_played,
+use crate::{
+    engine::{AudioFifo},
+    singletons::add_played
 };
 
 
