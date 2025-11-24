@@ -9,6 +9,10 @@ pub enum PlayerState {
     EMPTY,
 }
 
+pub enum EngineSignal {
+    MediaEnd
+}
+
 pub enum CMD {
     Start(String, ResamplingQuality),
 }

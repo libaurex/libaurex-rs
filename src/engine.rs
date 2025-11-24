@@ -1,10 +1,12 @@
+//engine.rs
+
 use crate::{
     ffi::data_callback, 
-    enums::{PlayerState, CMD, ResamplingQuality},
-    singletons::{get_played}
+    enums::{PlayerState, CMD, ResamplingQuality, EngineSignal},
+    singletons::{get_played, set_total, set_decoder_eof}
 };
 
-use ffmpeg_next;
+use ffmpeg_next::{self, packet::Mut};
 use miniaudio_aurex::{self as miniaudio, ma_device_config_init};
 use soxr::{Soxr, format::{self}, params::{Interpolation, QualitySpec, RuntimeSpec}};
 
@@ -13,10 +15,12 @@ use std::{
     ptr,
     sync::{
         Arc, Mutex,
-        mpsc::{self, Receiver, Sender},
     },
     thread::{self}
 };
+
+use crossbeam_channel::{unbounded, Receiver, Sender};
+
 
 
 #[allow(unused_imports)]
@@ -24,6 +28,8 @@ use ffmpeg_next::{self as av, ffi::AVAudioFifo, frame::Audio as AudioFrame, medi
 
 pub struct AudioFifo(pub *mut AVAudioFifo);
 unsafe impl Send for AudioFifo {}
+
+
 
 pub struct AudioEngine {
     device: miniaudio::ma_device,
@@ -36,14 +42,16 @@ pub struct AudioEngine {
     tx: Option<Sender<CMD>>,
     duration: Arc<Mutex<f64>>, //Total duration in seconds, -1.0 if theres nothing to play
     total_samples: Arc<Mutex<Option<u64>>>, // Total samples in current track
-    resampling_quality: ResamplingQuality
+    resampling_quality: ResamplingQuality,
+    signal_receiver: Receiver<EngineSignal>,
+    user_data: Arc<Mutex<(Arc<Mutex<AudioFifo>>, Sender<EngineSignal>)>>
 }
 
 impl AudioEngine {
     pub fn new(
         resampling_quality: Option<ResamplingQuality>
         
-        ) -> Result<Self, i32> {
+        ) -> Result<Arc<Mutex<Self>>, i32> {
 
         let m_resampling_quality = resampling_quality.unwrap_or(ResamplingQuality::High);
         
@@ -52,6 +60,10 @@ impl AudioEngine {
             unsafe { sys::av_audio_fifo_alloc(sys::AVSampleFormat::AV_SAMPLE_FMT_S32, 2, 128_000) };
         let buffer = Arc::new(Mutex::new(AudioFifo(buffer_ptr)));
 
+        let (signal_tx, signal_rx) = unbounded::<EngineSignal>();
+        let m_user_data = (buffer.clone(), signal_tx);
+        let user_data = Arc::new(Mutex::new(m_user_data));
+
         let mut device_config =
             unsafe { ma_device_config_init(miniaudio::ma_device_type_ma_device_type_playback) };
 
@@ -59,7 +71,7 @@ impl AudioEngine {
         device_config.playback.channels = 0;
         device_config.sampleRate = 0;
         device_config.dataCallback = Some(data_callback);
-        device_config.pUserData = buffer.lock().unwrap().0 as *mut c_void;
+        device_config.pUserData = Arc::as_ptr(&user_data) as *mut c_void;
 
         if cfg!(target_os = "windows") {
             println!("Detected Windows");
@@ -90,10 +102,12 @@ impl AudioEngine {
             tx: None,
             duration: Arc::new(Mutex::new(-1.0)),
             total_samples: Arc::new(Mutex::new(None)),
-            resampling_quality: m_resampling_quality
+            resampling_quality: m_resampling_quality,
+            signal_receiver: signal_rx,
+            user_data: user_data
         };
 
-        Ok(engine)
+        Ok(Arc::new(Mutex::new(engine)))
     }
 
     pub fn get_duration(&self) -> f64 {
@@ -101,22 +115,24 @@ impl AudioEngine {
     }
 
     //Loads files. Automatically stops previous playback if any
-    pub fn load(&mut self, file: &str) -> Result<(), i32> {
+    pub fn load(audio_engine: Arc<Mutex<Self>>, file: &str) -> Result<(), i32> {
         // Clear any existing playback first
-        self.clear()?;
+        let mut engine = audio_engine.lock().unwrap();
+        engine.clear()?;
 
         // Initialize decoder thread if needed
-        if !self.initialised {
-            let (tx, rx) = mpsc::channel::<CMD>();
-            self.tx = Some(tx);
-            _ = self.reinit_device(); //The state is mangled after using it to query the system config, hence re-init
-            _ = self.spawn_decoder_thread(rx);
-            self.initialised = true;
+        if !engine.initialised {
+            let (tx, rx) = unbounded::<CMD>();
+            engine.tx = Some(tx);
+            _ = engine.reinit_device(); //The state is mangled after using it to query the system config, hence re-init
+            _ = engine.spawn_decoder_thread(rx.clone());
+            _ = AudioEngine::spawn_listening_thread(audio_engine.clone(), engine.signal_receiver.clone());
+            engine.initialised = true;
         }
 
         println!("Loading {}", &file);
-
-        _ = self.tx.as_mut().unwrap().send(CMD::Start(file.to_string(), self.resampling_quality));
+        let resampling_quality = engine.resampling_quality;
+        _ = engine.tx.as_mut().unwrap().send(CMD::Start(file.to_string(), resampling_quality));
 
         Ok(())
     }
@@ -183,9 +199,28 @@ impl AudioEngine {
     fn reinit_device(&mut self) -> Result<(), i32> {
         unsafe {
             self.device = std::mem::zeroed();
-            self.device_config.pUserData = Arc::into_raw(self.buffer.clone()) as *mut c_void;
+            self.device_config.pUserData = Arc::as_ptr(&self.user_data) as *mut c_void;
             miniaudio::ma_device_init(ptr::null_mut(), &self.device_config, &mut self.device);
         }
+        Ok(())
+    }
+
+    fn spawn_listening_thread (engine: Arc<Mutex<Self>>, receiver: Receiver<EngineSignal>) -> Result<(), i32> {
+        thread::spawn(move || {
+            for signal in receiver {
+                match signal {
+                    EngineSignal::MediaEnd => {
+                        println!("Media Ended");
+                        set_decoder_eof(false);
+                        let mut m_engine = engine.lock().unwrap();
+                        _ = m_engine.pause();
+                        _ = m_engine.clear();
+                        println!("Player empty and ready.");
+                    }
+                }
+            }
+        });
+
         Ok(())
     }
 
@@ -228,6 +263,7 @@ impl AudioEngine {
                         let mut total_samples = total_samples_handle.lock().unwrap();
                         *duration = format_ctx.duration() as f64 / f64::from(av::ffi::AV_TIME_BASE);
                         *total_samples = Some((*duration * sample_rate) as u64);
+                        set_total(total_samples.unwrap());
 
                         let audio_stream_index = format_ctx
                             .streams()
@@ -332,6 +368,8 @@ impl AudioEngine {
                                 }
                             }
                         }
+
+                        set_decoder_eof(true);
                     }
                 }
             }
@@ -352,3 +390,6 @@ impl Drop for AudioEngine {
         }
     }
 }
+
+unsafe impl Send for AudioEngine {}
+unsafe impl Sync for AudioEngine {}

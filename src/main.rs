@@ -2,7 +2,7 @@
 
 use std::{env, thread};
 use std::time::Duration;
-use libaurex::engine::AudioEngine;
+use libaurex::aurex::Player;
 use libaurex::enums::ResamplingQuality;
 
 fn main() {
@@ -12,13 +12,11 @@ fn main() {
         return;
     }
  
-    let mut engine = AudioEngine::new(Some(ResamplingQuality::VeryHigh)).unwrap();
-    _ = engine.load(&args[1].clone());
-    _ = engine.play();
-
+    let player = Player::new(Some(ResamplingQuality::VeryHigh)).unwrap();
+    _ = player.load(&args[1].clone());
+    _ = player.play();
 
     loop {
         thread::sleep(Duration::from_secs(1));
-        println!("Progress: {}/{} seconds", engine.get_progress().unwrap(), engine.get_duration());
     }
 }
