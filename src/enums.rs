@@ -9,6 +9,7 @@ pub enum PlayerState {
     EMPTY,
 }
 
+#[derive(PartialEq)]
 pub enum EngineSignal {
     MediaEnd
 }

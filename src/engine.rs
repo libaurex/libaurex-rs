@@ -44,12 +44,15 @@ pub struct AudioEngine {
     total_samples: Arc<Mutex<Option<u64>>>, // Total samples in current track
     resampling_quality: ResamplingQuality,
     signal_receiver: Receiver<EngineSignal>,
-    user_data: Arc<Mutex<(Arc<Mutex<AudioFifo>>, Sender<EngineSignal>)>>
+    user_data: Arc<Mutex<(Arc<Mutex<AudioFifo>>, Sender<EngineSignal>)>>,
+    callback: fn(event: EngineSignal)
 }
 
 impl AudioEngine {
     pub fn new(
-        resampling_quality: Option<ResamplingQuality>
+
+            resampling_quality: Option<ResamplingQuality>,
+            callback: fn(event: EngineSignal)
         
         ) -> Result<Arc<Mutex<Self>>, i32> {
 
@@ -104,7 +107,8 @@ impl AudioEngine {
             total_samples: Arc::new(Mutex::new(None)),
             resampling_quality: m_resampling_quality,
             signal_receiver: signal_rx,
-            user_data: user_data
+            user_data: user_data,
+            callback: callback
         };
 
         Ok(Arc::new(Mutex::new(engine)))
@@ -210,12 +214,12 @@ impl AudioEngine {
             for signal in receiver {
                 match signal {
                     EngineSignal::MediaEnd => {
-                        println!("Media Ended");
                         set_decoder_eof(false);
                         let mut m_engine = engine.lock().unwrap();
                         _ = m_engine.pause();
                         _ = m_engine.clear();
-                        println!("Player empty and ready.");
+                        println!("Player empty and ready. Executing callback");
+                        (m_engine.callback)(EngineSignal::MediaEnd);
                     }
                 }
             }
@@ -223,6 +227,8 @@ impl AudioEngine {
 
         Ok(())
     }
+
+
 
     
     
