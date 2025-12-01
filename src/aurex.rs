@@ -2,7 +2,8 @@
 
 use crate::{
     engine::{AudioEngine},
-    enums::ResamplingQuality
+    enums::ResamplingQuality,
+    enums::EngineSignal
 };
 
 use std::{
@@ -16,10 +17,13 @@ pub struct Player {
 impl Player {
 
     pub fn new (
-        resampling_quality: Option<ResamplingQuality>
+
+        resampling_quality: Option<ResamplingQuality>,
+        callback: fn(event: EngineSignal)
+
     ) -> Result<Self, i32> {
 
-        let engine = AudioEngine::new(resampling_quality);
+        let engine = AudioEngine::new(resampling_quality, callback);
         if engine.is_err() {
             return Err(engine.err().unwrap_or(-1));
         }
