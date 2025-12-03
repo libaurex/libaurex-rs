@@ -3,7 +3,8 @@
 use crate::{
     ffi::data_callback, 
     enums::{PlayerState, CMD, ResamplingQuality, EngineSignal},
-    singletons::{get_played, set_total, set_decoder_eof}
+    singletons::{get_played, set_total, set_decoder_eof},
+    aurex::PlayerCallback
 };
 
 use ffmpeg_next::{self, packet::Mut};
@@ -45,14 +46,14 @@ pub struct AudioEngine {
     resampling_quality: ResamplingQuality,
     signal_receiver: Receiver<EngineSignal>,
     user_data: Arc<Mutex<(Arc<Mutex<AudioFifo>>, Sender<EngineSignal>)>>,
-    callback: fn(event: EngineSignal)
+    callback: Box<dyn PlayerCallback>,
 }
 
 impl AudioEngine {
     pub fn new(
 
             resampling_quality: Option<ResamplingQuality>,
-            callback: fn(event: EngineSignal)
+            callback: Box<dyn PlayerCallback>
         
         ) -> Result<Arc<Mutex<Self>>, i32> {
 
@@ -219,7 +220,7 @@ impl AudioEngine {
                         _ = m_engine.pause();
                         _ = m_engine.clear();
                         println!("Player empty and ready. Executing callback");
-                        (m_engine.callback)(EngineSignal::MediaEnd);
+                        m_engine.callback.on_player_event(EngineSignal::MediaEnd);
                     }
                 }
             }

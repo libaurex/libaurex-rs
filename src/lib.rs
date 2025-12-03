@@ -3,3 +3,5 @@ mod ffi;
 pub mod enums;
 mod singletons;
 pub mod aurex;
+
+uniffi::setup_scaffolding!();
