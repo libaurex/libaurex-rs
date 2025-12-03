@@ -3,14 +3,17 @@
 use std::{env, thread};
 use std::time::Duration;
 use libaurex::aurex::Player;
+use libaurex::aurex::PlayerCallback;
 use libaurex::enums::{ResamplingQuality, EngineSignal};
 
 
-fn notify_end(event: EngineSignal) {
-    if event == EngineSignal::MediaEnd {
-        println!("Media has ended.")
+struct Callback;
+impl PlayerCallback for Callback {
+    fn on_player_event(&self, event:EngineSignal) {
+        println!("Media Ended.")
     }
 }
+
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -19,7 +22,9 @@ fn main() {
         return;
     }
  
-    let player = Player::new(Some(ResamplingQuality::VeryHigh), notify_end).unwrap();
+    let player = Player::new(Some(ResamplingQuality::VeryHigh), 
+        Box::new(Callback)
+    ).unwrap();
     _ = player.load(&args[1].clone());
     _ = player.play();
 

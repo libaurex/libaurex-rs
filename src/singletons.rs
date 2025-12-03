@@ -1,7 +1,6 @@
 use std::sync::{
     LazyLock, 
     atomic::{AtomicU64, Ordering, AtomicBool},
-    mpsc::{self, Receiver, Sender}
 };
 
 //Global counter for number of played samples. Used for progress tracking
