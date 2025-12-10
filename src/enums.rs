@@ -1,5 +1,6 @@
 use std::fmt;
 use soxr::{Soxr, params::{QualitySpec, QualityRecipe, QualityFlags}};
+use tokio::sync::oneshot;
 
 #[derive(PartialEq)]
 pub enum PlayerState {
@@ -18,6 +19,37 @@ pub enum EngineSignal {
 
 pub enum CMD {
     Start(String, ResamplingQuality),
+    Seek {
+        time_s: f64,
+        done: oneshot::Sender<()>
+    },
+}
+
+impl PartialEq for CMD {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            // Compare Start(String, ResamplingQuality)
+            (
+                CMD::Start(a_url, a_quality),
+                CMD::Start(b_url, b_quality)
+            ) => a_url == b_url && a_quality == b_quality,
+
+            // Compare Seek { time_s, ... }
+            (
+                CMD::Seek { time_s: a, .. },
+                CMD::Seek { time_s: b, .. }
+            ) => a == b,
+
+            // //Compare resume
+            // (
+            //     CMD::Resume,
+            //     CMD::Resume
+            // ) => true,
+
+            // Anything else isn't equal
+            _ => false,
+        }
+    }
 }
 
 #[derive(uniffi::Error, Debug)]
@@ -37,7 +69,7 @@ impl fmt::Display for PlayerError {
 impl std::error::Error for PlayerError {}
 
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy,PartialEq)]
 #[derive(uniffi::Enum)]
 pub enum ResamplingQuality {
     Quick = 0,

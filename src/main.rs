@@ -14,8 +14,8 @@ impl PlayerCallback for Callback {
     }
 }
 
-
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
         println!("No files provided.");
@@ -24,9 +24,11 @@ fn main() {
  
     let player = Player::new(Some(ResamplingQuality::VeryHigh), 
         Box::new(Callback)
-    ).unwrap();
-    _ = player.load(&args[1].clone());
-    _ = player.play();
+    ).await.unwrap();
+    _ = player.load(&args[1].clone()).await;
+    _ = player.play().await;
+    // thread::sleep(Duration::from_secs(5));
+    // _ = player.seek(30.0).await;
 
     loop {
         thread::sleep(Duration::from_secs(1));

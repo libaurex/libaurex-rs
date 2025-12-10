@@ -38,3 +38,12 @@ pub fn get_decoder_eof() -> bool {
 pub fn set_decoder_eof(flag: bool) {
     DECODER_EOF.store(flag, Ordering::Relaxed);
 }
+
+
+pub static DECODER_BUSY: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
+pub fn get_decoder_busy() -> bool {
+    DECODER_BUSY.load(Ordering::Relaxed)
+}
+pub fn set_decoder_busy(flag: bool) {
+    DECODER_BUSY.store(flag, Ordering::Relaxed);
+}
