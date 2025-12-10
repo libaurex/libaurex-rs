@@ -1,32 +1,42 @@
 //engine.rs
 
 use crate::{
-    aurex::PlayerCallback, enums::{CMD, EngineSignal, PlayerState, ResamplingQuality}, ffi::data_callback, singletons::{self, get_played, set_decoder_eof, set_total}, structs::Decoder,
-    decoding_loop::decode
+    aurex::PlayerCallback,
+    decoding_loop::decode,
+    enums::{CMD, EngineSignal, PlayerState, ResamplingQuality},
+    ffi::data_callback,
+    singletons::{self, get_played, set_decoder_eof, set_total},
+    structs::Decoder,
 };
 
-use ffmpeg_next::{self, packet::Mut};
+use ffmpeg_next::{self};
 use miniaudio_aurex::{self as miniaudio, ma_device_config_init};
-use soxr::{Soxr, format::{self}, params::{Interpolation, QualitySpec, RuntimeSpec}};
-
-use core::time;
-use std::{
-    ffi::c_void, i64, mem::zeroed, ptr, sync::{
-        Arc, Mutex, atomic::{AtomicBool, Ordering},
-    }, thread::{self}
+use soxr::{
+    Soxr,
+    format::{self},
+    params::{Interpolation, RuntimeSpec},
 };
 
-use crossbeam_channel::{unbounded, Receiver, Sender};
-use tokio::sync::{oneshot, Mutex as async_Mutex};
+use std::{
+    ffi::c_void,
+    i64,
+    mem::zeroed,
+    ptr,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
+    thread::{self}, time::Duration,
+};
 
+use crossbeam_channel::{Receiver, Sender, unbounded};
+use tokio::sync::{Mutex as async_Mutex, oneshot};
 
 #[allow(unused_imports)]
 use ffmpeg_next::{self as av, ffi::AVAudioFifo, frame::Audio as AudioFrame, media, sys};
 
 pub struct AudioFifo(pub *mut AVAudioFifo);
 unsafe impl Send for AudioFifo {}
-
-
 
 pub struct AudioEngine {
     device: miniaudio::ma_device,
@@ -44,20 +54,16 @@ pub struct AudioEngine {
     user_data: Arc<Mutex<(Arc<Mutex<AudioFifo>>, Sender<EngineSignal>)>>,
     callback: Box<dyn PlayerCallback>,
     decoder: Arc<Mutex<Decoder>>,
-    
 }
 
 impl AudioEngine {
     pub fn new(
-
-            resampling_quality: Option<ResamplingQuality>,
-            callback: Box<dyn PlayerCallback>
-        
-        ) -> Result<Arc<async_Mutex<Self>>, i32> {
-
+        resampling_quality: Option<ResamplingQuality>,
+        callback: Box<dyn PlayerCallback>,
+    ) -> Result<Arc<async_Mutex<Self>>, i32> {
         let m_resampling_quality = resampling_quality.unwrap_or(ResamplingQuality::High);
         singletons::set_decoder_busy(false);
-        
+
         let mut device: miniaudio::ma_device = unsafe { std::mem::zeroed() };
         let buffer_ptr =
             unsafe { sys::av_audio_fifo_alloc(sys::AVSampleFormat::AV_SAMPLE_FMT_S32, 2, 128_000) };
@@ -93,7 +99,7 @@ impl AudioEngine {
             "Detected system configuration: {} channels at {} hz",
             device.playback.channels, device.sampleRate
         );
-        
+
         let decoder: Arc<Mutex<Decoder>>;
 
         unsafe {
@@ -103,7 +109,7 @@ impl AudioEngine {
                 resampler: zeroed(),
                 soxr_resampler: zeroed(),
                 audio_stream_index: zeroed(),
-                main_decoder_cancel_flag: Arc::new(AtomicBool::new(false))
+                main_decoder_cancel_flag: Arc::new(AtomicBool::new(false)),
             }));
         }
 
@@ -144,14 +150,21 @@ impl AudioEngine {
             engine.tx = Some(tx);
             _ = engine.reinit_device(); //The state is mangled after using it to query the system config, hence re-init
             _ = engine.spawn_decoder_thread(rx.clone());
-            _ = AudioEngine::spawn_listening_thread(audio_engine.clone(), engine.signal_receiver.clone());
+            _ = AudioEngine::spawn_listening_thread(
+                audio_engine.clone(),
+                engine.signal_receiver.clone(),
+            );
             _ = engine.spawn_seeker_thread(rx.clone());
             engine.initialised = true;
         }
 
         println!("Loading {}", &file);
         let resampling_quality = engine.resampling_quality;
-        _ = engine.tx.as_mut().unwrap().send(CMD::Start(file.to_string(), resampling_quality));
+        _ = engine
+            .tx
+            .as_mut()
+            .unwrap()
+            .send(CMD::Start(file.to_string(), resampling_quality));
 
         Ok(())
     }
@@ -178,7 +191,7 @@ impl AudioEngine {
         }
 
         *self.state.lock().unwrap() = PlayerState::EMPTY;
-        
+
         println!("Cleared audio buffer");
         Ok(())
     }
@@ -224,7 +237,10 @@ impl AudioEngine {
         Ok(())
     }
 
-    fn spawn_listening_thread (engine: Arc<async_Mutex<Self>>, receiver: Receiver<EngineSignal>) -> Result<(), i32> {
+    fn spawn_listening_thread(
+        engine: Arc<async_Mutex<Self>>,
+        receiver: Receiver<EngineSignal>,
+    ) -> Result<(), i32> {
         thread::spawn(async move || {
             for signal in receiver {
                 match signal {
@@ -244,71 +260,98 @@ impl AudioEngine {
     }
 
     pub async fn seek(&mut self, time_s: f64) -> Result<(), i32> {
+
+        loop {
+            if *self.state.lock().unwrap() != PlayerState::INITIALISED {
+                println!("Not initialised");
+                thread::sleep(Duration::from_millis(5));
+            } else {
+                break;
+            }
+        }
         _ = self.pause();
-        _ = self.clear();
-        
+
         {
             let decoder = self.decoder.lock().unwrap();
-            decoder.main_decoder_cancel_flag.store(true, Ordering::Relaxed);
+            decoder
+                .main_decoder_cancel_flag
+                .store(true, Ordering::Relaxed);
         }
 
-        let (tx_done, rx_done) = oneshot::channel();
-        _ = self.tx.clone().unwrap().send(CMD::Seek{time_s: time_s, done: tx_done});
-        _ = rx_done.await;
-        
+        _ = self.clear();
 
+        let (tx_done, rx_done) = oneshot::channel();
+        _ = self.tx.clone().unwrap().send(CMD::Seek {
+            time_s: time_s,
+            done: tx_done,
+        });
+        _ = rx_done.await;
+
+        {
+            let decoder = self.decoder.lock().unwrap();
+            decoder
+                .main_decoder_cancel_flag
+                .store(false, Ordering::Relaxed);
+        }
+
+        let tx = self.tx.as_ref().unwrap().clone();
+        _ = tx.send(CMD::Resume);
+        _ = self.play();
 
         Ok(())
     }
 
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     // <- DECODING LOGIC ->
-    fn spawn_seeker_thread(&mut self, rx:Receiver<CMD>) -> Result<(), i32> {
+    fn spawn_seeker_thread(&mut self, rx: Receiver<CMD>) -> Result<(), i32> {
         let decoder_handle = self.decoder.clone();
 
         thread::spawn(move || {
-                for cmd in rx {
-                    if let CMD::Seek{time_s, done} = cmd {
-                        singletons::set_decoder_busy(true);
-                        let mut decoder = decoder_handle.lock().unwrap();
-                        let stream_index = decoder.audio_stream_index;
-                        let stream = decoder.format_ctx.as_mut().unwrap().stream(stream_index).unwrap();
-                        let tb = stream.time_base();
-                        let target_ts = unsafe {
-                            sys::av_rescale_q (
-                                (time_s * 1_000_000.0) as i64,
-                                sys::AV_TIME_BASE_Q,
-                                tb.into()
-                            )
-                        };
+            for cmd in rx {
+                if let CMD::Seek { time_s, done } = cmd {
+                    let mut decoder = decoder_handle.lock().unwrap();
+                    
+                    let target_ts = (time_s * 1_000_000.0) as i64;
 
-                        _ = decoder.format_ctx.as_mut().unwrap().seek(target_ts, i64::MIN..i64::MAX);
-                        decoder.decoder.flush();
-                        let mut dump = AudioFrame::empty();
-                        _ = decoder.resampler.flush(&mut dump);
-                        _ = decoder.soxr_resampler.clear();
-                        _ = done.send(());
-                    }
+                    _ = decoder
+                        .format_ctx
+                        .as_mut()
+                        .unwrap()
+                        .seek(target_ts, i64::MIN..i64::MAX);
+                    decoder.decoder.flush();
+                    let mut dump = AudioFrame::empty();
+                    _ = decoder.resampler.flush(&mut dump);
+                    _ = decoder.soxr_resampler.clear();
+                    _ = done.send(());
                 }
             }
-        );
+        });
 
         Ok(())
     }
@@ -318,164 +361,94 @@ impl AudioEngine {
         let buffer_handle = self.buffer.clone();
         let duration_handle = self.duration.clone();
         let total_samples_handle = self.total_samples.clone();
+        let state_handle = self.state.clone();
 
         let decoder_handle = self.decoder.clone();
 
         thread::spawn(move || {
             for cmd in rx {
                 if let CMD::Start(url, resampling_quality) = cmd {
+                    let mut m_decoder = decoder_handle.lock().unwrap();
+                    m_decoder.format_ctx =
+                        Some(av::format::input(&url).expect("Failed to open file."));
 
-                        let mut m_decoder = decoder_handle.lock().unwrap();
-                        m_decoder.format_ctx = Some(av::format::input(&url).expect("Failed to open file."));
+                    //Populate duration
+                    let sample_rate = *sample_rate_handle.lock().unwrap() as f64;
+                    let mut duration = duration_handle.lock().unwrap();
+                    let mut total_samples = total_samples_handle.lock().unwrap();
+                    *duration = m_decoder.format_ctx.as_mut().unwrap().duration() as f64
+                        / f64::from(av::ffi::AV_TIME_BASE);
+                    *total_samples = Some((*duration * sample_rate) as u64);
+                    set_total(total_samples.unwrap());
 
-                        //Populate duration
-                        let sample_rate = *sample_rate_handle.lock().unwrap() as f64;
-                        let mut duration = duration_handle.lock().unwrap();
-                        let mut total_samples = total_samples_handle.lock().unwrap();
-                        *duration = m_decoder.format_ctx.as_mut().unwrap().duration() as f64 / f64::from(av::ffi::AV_TIME_BASE);
-                        *total_samples = Some((*duration * sample_rate) as u64);
-                        set_total(total_samples.unwrap());
+                    let audio_stream_index = m_decoder
+                        .format_ctx
+                        .as_mut()
+                        .unwrap()
+                        .streams()
+                        .best(media::Type::Audio)
+                        .expect("No audio stream found.")
+                        .index();
 
-                        let audio_stream_index = m_decoder.format_ctx.as_mut().unwrap()
-                            .streams()
-                            .best(media::Type::Audio)
-                            .expect("No audio stream found.")
-                            .index();
+                    m_decoder.audio_stream_index = audio_stream_index;
+                    let codec_params = m_decoder
+                        .format_ctx
+                        .as_mut()
+                        .unwrap()
+                        .streams()
+                        .nth(audio_stream_index)
+                        .expect("Stream Disappeared")
+                        .parameters();
 
-                        m_decoder.audio_stream_index = audio_stream_index;
-                        let codec_params = m_decoder.format_ctx.as_mut().unwrap()
-                            .streams()
-                            .nth(audio_stream_index)
-                            .expect("Stream Disappeared")
-                            .parameters();
+                    let codec_ctx = av::codec::context::Context::from_parameters(codec_params)
+                        .expect("Failed to allocate codec context");
 
-                        let codec_ctx = av::codec::context::Context::from_parameters(codec_params)
-                            .expect("Failed to allocate codec context");
+                    m_decoder.decoder = codec_ctx
+                        .decoder()
+                        .audio()
+                        .expect("Failed to open decoder.");
 
+                    //This is just for sample size conversion since soxr only does resampling
+                    m_decoder.resampler = av::software::resampling::Context::get(
+                        m_decoder.decoder.format(),
+                        m_decoder.decoder.channel_layout(),
+                        m_decoder.decoder.rate(),
+                        av::format::Sample::I32(av::format::sample::Type::Packed),
+                        m_decoder.decoder.channel_layout(),
+                        m_decoder.decoder.rate(),
+                    )
+                    .expect("Failed to init resampler");
 
-                        m_decoder.decoder = codec_ctx
-                            .decoder()
-                            .audio()
-                            .expect("Failed to open decoder.");
+                    //Actual resamppling happens here
+                    let soxr_runtime = RuntimeSpec::new(0).with_interpolation(Interpolation::High);
 
-                        
-                        //This is just for sample size conversion since soxr only does resampling
-                        m_decoder.resampler = av::software::resampling::Context::get(
-                            m_decoder.decoder.format(),
-                            m_decoder.decoder.channel_layout(),
-                            m_decoder.decoder.rate(),
-                            av::format::Sample::I32(av::format::sample::Type::Packed),
-                            m_decoder.decoder.channel_layout(),
-                            m_decoder.decoder.rate(),
+                    m_decoder.soxr_resampler =
+                        Soxr::<format::Interleaved<i32, 2>>::new_with_params(
+                            m_decoder.decoder.rate() as f64,
+                            sample_rate,
+                            resampling_quality
+                                .get_quality_spec()
+                                .expect("Failed to get quality spec for soxr."),
+                            soxr_runtime,
                         )
-                        .expect("Failed to init resampler");
+                        .expect("Failed to setup soxr");
 
+                    let mut state = state_handle.lock().unwrap();
+                    *state = PlayerState::INITIALISED;
+                    println!("Initialised decoders");
+                    drop(m_decoder);
 
-                        //Actual resamppling happens here
-                        let soxr_runtime = RuntimeSpec::new(0)
-                            .with_interpolation(Interpolation::High);
-
-
-                        m_decoder.soxr_resampler = Soxr::<format::Interleaved<i32, 2>>::new_with_params(
-                            m_decoder.decoder.rate() as f64, 
-                            sample_rate, 
-                            resampling_quality.get_quality_spec().expect("Failed to get quality spec for soxr."),
-                            soxr_runtime
-                        ).expect("Failed to setup soxr");
-
-                        println!("Initialised decoders");
-
-                        let mut format_ctx = m_decoder.format_ctx.take().unwrap();
-
-                        drop(m_decoder);
-
-                        //Decoding loop
-                        for (stream, packet) in format_ctx.packets() {
-                            let mut m_decoder = decoder_handle.lock().unwrap();
-                            
-                            //Check if loop needs to be interrupted
-                            if m_decoder.main_decoder_cancel_flag.load(Ordering::Relaxed) {
-                                m_decoder.format_ctx = Some(format_ctx);
-                                println!("Interrupting decoder");
-                                return Ok::<(), i32>(());
-                            }
-                            
-
-                            if stream.index() != audio_stream_index {
-                                continue;
-                            }
-
-
-                            m_decoder.decoder
-                                .send_packet(&packet)
-                                .expect("Failed to send packet to decoder.");
-                            let mut frame = AudioFrame::empty();
-
-                            while m_decoder.decoder.receive_frame(&mut frame).is_ok() {
-                                let mut resampled_frame = AudioFrame::empty();
-                                _ = m_decoder.resampler.run(&frame, &mut resampled_frame);
-
-                                //Convert ffmpeg's raw bytes into soxr's required array types
-                                let input_samples: &[[i32; 2]] =
-                                    bytemuck::cast_slice(resampled_frame.data(0));
-                                let mut output_buf = vec![
-                                    [0i32; 2];
-                                    (input_samples.len() as usize
-                                        * *sample_rate_handle.lock().unwrap()
-                                            as usize)
-                                        / m_decoder.decoder.rate() as usize
-                                ];
-
-                                let res = m_decoder.soxr_resampler
-                                    .process(input_samples, &mut output_buf)
-                                    .unwrap();
-
-                                let mut soxr_frame = AudioFrame::new(
-                                    av::format::Sample::I32(av::format::sample::Type::Packed),
-                                    res.output_frames,
-                                    av::ChannelLayout::STEREO,
-                                );
-                                
-                                //Copy soxr's output to ffmpeg frame bit of a mess cause soxr gives you nice typed arrays but ffmpeg just uses raw bytes
-                                soxr_frame.set_rate(*sample_rate_handle.lock().unwrap() as u32);
-
-                                let data_plane = soxr_frame.data_mut(0);
-                                let dst_slice: &mut [[i32; 2]] =
-                                    bytemuck::cast_slice_mut(data_plane);
-                                dst_slice[..res.output_frames]
-                                    .copy_from_slice(&output_buf[..res.output_frames]);
-
-                                unsafe {
-                                    let data_ptr0 =
-                                        soxr_frame.data_mut(0).as_mut_ptr() as *mut c_void;
-                                    let mut data_ptrs: [*mut c_void; 1] = [data_ptr0];
-
-                                    let written = sys::av_audio_fifo_write(
-                                        buffer_handle.lock().unwrap().0,
-                                        data_ptrs.as_mut_ptr(),
-                                        soxr_frame.samples() as i32,
-                                    );
-
-                                    // println!("Got to the end");
-
-                                    if written < 0 {
-                                        // Todo
-                                    }
-                                }
-                            }
-                        }
-
-                        // Put format_ctx back after using it
-                        m_decoder = decoder_handle.lock().unwrap();
-                        m_decoder.format_ctx = Some(format_ctx);
-                        
-
-                        set_decoder_eof(true);
-                    } 
+                    _ = decode(
+                        decoder_handle.clone(),
+                        sample_rate_handle.clone(),
+                        buffer_handle.clone(),
+                    );
                 }
-                Ok(())
+                else if let CMD::Resume = cmd {
+                    _ = decode(decoder_handle.clone(), sample_rate_handle.clone(), buffer_handle.clone());
+                }
             }
-        );
+        });
 
         Ok(())
     }
