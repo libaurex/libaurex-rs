@@ -1,5 +1,4 @@
 //This is an ffi safe public api wrapper
-
 use crate::{
     engine::{AudioEngine},
     enums::ResamplingQuality,
@@ -11,9 +10,11 @@ use std::{
     sync::{Arc, Mutex}
 };
 
+use tokio::sync::Mutex as async_Mutex;
+
 #[derive(uniffi::Object)]
 pub struct Player {
-    engine: Arc<Mutex<AudioEngine>>
+    engine: Arc<async_Mutex<AudioEngine>>
 }
 
 #[uniffi::export(callback_interface)]
@@ -25,7 +26,7 @@ pub trait PlayerCallback: Send + Sync {
 impl Player {
 
     #[uniffi::constructor]
-    pub fn new (
+    pub async fn new (
 
         resampling_quality: Option<ResamplingQuality>,
         callback: Box<dyn PlayerCallback>
@@ -42,18 +43,18 @@ impl Player {
         )
     }
 
-    pub fn get_duration(&self) -> f64 {
-        let engine = self.engine.lock().unwrap();
+    pub async fn get_duration(&self) -> f64 {
+        let engine = self.engine.lock().await;
         engine.get_duration()
     }
 
-    pub fn load(&self, file: &str) -> Result<(), PlayerError> {
-        AudioEngine::load(self.engine.clone(), file);
+    pub async fn load(&self, file: &str) -> Result<(), PlayerError> {
+        AudioEngine::load(self.engine.clone(), file).await;
         Ok(())
     }
 
-    pub fn get_progress(&self) -> Result<f64, PlayerError> {
-        let engine = self.engine.lock().unwrap();
+    pub async fn get_progress(&self) -> Result<f64, PlayerError> {
+        let engine = self.engine.lock().await;
         let res = engine.get_progress();
         if res.is_err() {
             return Err(PlayerError::Code(res.err().unwrap_or(-1)));
@@ -61,21 +62,28 @@ impl Player {
         Ok(res.unwrap())
     }
 
-    pub fn clear(&self) -> Result<(), PlayerError> {
-        let mut engine = self.engine.lock().unwrap();
+    pub async fn clear(&self) -> Result<(), PlayerError> {
+        let mut engine = self.engine.lock().await;
         engine.clear();
         Ok(())
     }
 
-    pub fn play(&self) -> Result<(), PlayerError> {
-        let mut engine = self.engine.lock().unwrap();
+    pub async fn play(&self) -> Result<(), PlayerError> {
+        let mut engine = self.engine.lock().await;
         engine.play();
         Ok(())
     }
 
-    pub fn pause(&self) -> Result<(), PlayerError> {
-        let mut engine = self.engine.lock().unwrap();
+    pub async fn pause(&self) -> Result<(), PlayerError> {
+        let mut engine = self.engine.lock().await;
         engine.pause();
+        Ok(())
+    }
+
+    pub async fn seek(&self, time_s: f64) -> Result<(), PlayerError> {
+        let mut engine = self.engine.lock().await;
+        engine.seek(time_s);
+
         Ok(())
     }
 }
