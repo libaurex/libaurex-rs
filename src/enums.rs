@@ -1,5 +1,5 @@
 use std::fmt;
-use soxr::{Soxr, params::{QualitySpec, QualityRecipe, QualityFlags}};
+use soxr::{params::{QualitySpec, QualityRecipe, QualityFlags}};
 use tokio::sync::oneshot;
 
 #[derive(PartialEq)]
@@ -9,6 +9,7 @@ pub enum PlayerState {
     PLAYING,
     PAUSED,
     EMPTY,
+    INITIALISED
 }
 
 #[derive(PartialEq)]
@@ -23,6 +24,7 @@ pub enum CMD {
         time_s: f64,
         done: oneshot::Sender<()>
     },
+    Resume
 }
 
 impl PartialEq for CMD {
@@ -40,11 +42,11 @@ impl PartialEq for CMD {
                 CMD::Seek { time_s: b, .. }
             ) => a == b,
 
-            // //Compare resume
-            // (
-            //     CMD::Resume,
-            //     CMD::Resume
-            // ) => true,
+            //Compare resume
+            (
+                CMD::Resume,
+                CMD::Resume
+            ) => true,
 
             // Anything else isn't equal
             _ => false,

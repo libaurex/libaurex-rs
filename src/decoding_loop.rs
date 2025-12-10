@@ -76,8 +76,6 @@ pub fn decode(
                     soxr_frame.samples() as i32,
                 );
 
-                // println!("Got to the end");
-
                 if written < 0 {
                     // Todo
                 }

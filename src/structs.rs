@@ -1,10 +1,7 @@
 use ffmpeg_next::format::context::input::Input;
-use ffmpeg_next::codec::parameters::Parameters;
-use ffmpeg_next::codec::context::Context;
 use ffmpeg_next::codec::decoder::audio::Audio;
 use ffmpeg_next::software::resampling::context::Context as Resampler;
 
-use soxr::params::RuntimeSpec;
 use soxr::format::Interleaved;
 use soxr::Soxr;
 

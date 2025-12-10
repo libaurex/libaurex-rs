@@ -7,7 +7,7 @@ use crate::{
 };
 
 use std::{
-    sync::{Arc, Mutex}
+    sync::{Arc}
 };
 
 use tokio::sync::Mutex as async_Mutex;
@@ -49,7 +49,7 @@ impl Player {
     }
 
     pub async fn load(&self, file: &str) -> Result<(), PlayerError> {
-        AudioEngine::load(self.engine.clone(), file).await;
+        _ = AudioEngine::load(self.engine.clone(), file).await;
         Ok(())
     }
 
@@ -64,25 +64,25 @@ impl Player {
 
     pub async fn clear(&self) -> Result<(), PlayerError> {
         let mut engine = self.engine.lock().await;
-        engine.clear();
+        _ = engine.clear();
         Ok(())
     }
 
     pub async fn play(&self) -> Result<(), PlayerError> {
         let mut engine = self.engine.lock().await;
-        engine.play();
+        _ = engine.play();
         Ok(())
     }
 
     pub async fn pause(&self) -> Result<(), PlayerError> {
         let mut engine = self.engine.lock().await;
-        engine.pause();
+        _ = engine.pause();
         Ok(())
     }
 
     pub async fn seek(&self, time_s: f64) -> Result<(), PlayerError> {
         let mut engine = self.engine.lock().await;
-        engine.seek(time_s);
+        _ = engine.seek(time_s).await;
 
         Ok(())
     }
