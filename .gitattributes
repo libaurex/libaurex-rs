@@ -1,3 +1,4 @@
 miniaudio.c linguist-detectable=false
 miniaudio.h linguist-detectable=false
+out/uniffi/libaurex/libaurex.kt linguist-detectable=false
 *.lib filter=lfs diff=lfs merge=lfs -text
