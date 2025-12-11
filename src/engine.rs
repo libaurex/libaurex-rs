@@ -241,7 +241,7 @@ impl AudioEngine {
         engine: Arc<async_Mutex<Self>>,
         receiver: Receiver<EngineSignal>,
     ) -> Result<(), i32> {
-        thread::spawn(async move || {
+        let res = thread::spawn(async move || {
             for signal in receiver {
                 match signal {
                     EngineSignal::MediaEnd => {
@@ -255,6 +255,8 @@ impl AudioEngine {
                 }
             }
         });
+
+        _ = res.join();
 
         Ok(())
     }
@@ -432,6 +434,11 @@ impl AudioEngine {
                             soxr_runtime,
                         )
                         .expect("Failed to setup soxr");
+
+                    //Prime the resampler. At higher quality levels there's artifacting at the start due to lack of previous data
+                    let silence: Vec<[i32; 2]> = vec![[0, 0]; 1024]; 
+                    let mut dummy_output: Vec<[i32; 2]> = vec![[0, 0]; 2048];
+                    _ = m_decoder.soxr_resampler.process(&silence, &mut dummy_output);
 
                     let mut state = state_handle.lock().unwrap();
                     *state = PlayerState::INITIALISED;
