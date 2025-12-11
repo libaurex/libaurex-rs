@@ -28,6 +28,7 @@ async fn main() {
         Box::new(Callback)
     ).await.unwrap();
     _ = player.load(&args[1].clone()).await;
+    // player.set_volume(0.01).await;
     // _ = player.seek(30.0).await;
     _ = player.play().await;
     // thread::sleep(Duration::from_millis(100));

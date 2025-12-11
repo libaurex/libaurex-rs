@@ -1,10 +1,10 @@
 use ffmpeg_next::sys;
-use std::{ffi::c_void, ptr, sync::Arc};
+use std::{ffi::c_void, i32, ptr, sync::Arc};
 use miniaudio_aurex as miniaudio;
 
 use crate::{
     engine::AudioFifo,
-    singletons::{add_played, get_decoder_eof},
+    singletons::{add_played, get_decoder_eof, get_volume},
 };
 
 use std::sync::Mutex;
@@ -67,9 +67,23 @@ pub extern "C" fn data_callback(
                             0
                         };
 
-                        // Increment global played samples tracker
+                        
                         if got > 0 {
+                            // Increment global played samples tracker
                             add_played(got as u64);
+
+                            //Apply gain if necessary
+                            let vol = get_volume();
+                            if vol != 1.0 {
+                                let sample_count = (got as usize) * channels;
+                                let samples = p_output as *mut i32;
+
+                                for i in 0..sample_count {
+                                    let s = *samples.add(i) as f32;
+                                    *samples.add(i) = (s * vol)
+                                        .clamp(i32::MIN as f32, i32::MAX as f32) as i32;
+                                }
+                            }
                         }
 
                         if get_decoder_eof() && (got == 0) {

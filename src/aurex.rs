@@ -86,4 +86,16 @@ impl Player {
 
         Ok(())
     }
+
+    pub async fn get_volume(&self) -> f32 {
+        let engine = self.engine.lock().await;
+        engine.get_volume()
+    }
+
+    pub async fn set_volume(&self, volume: f32) {
+        let engine = self.engine.lock().await;
+        let mut m_volume = volume;
+        if m_volume > 1.0 {m_volume = 1.0;}
+        engine.set_volume(m_volume);
+    }
 }

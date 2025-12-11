@@ -1,6 +1,6 @@
 use std::sync::{
     LazyLock, 
-    atomic::{AtomicU64, Ordering, AtomicBool},
+    atomic::{AtomicU64, AtomicU32, Ordering, AtomicBool},
 };
 
 //Global counter for number of played samples. Used for progress tracking
@@ -46,4 +46,15 @@ pub fn get_decoder_busy() -> bool {
 }
 pub fn set_decoder_busy(flag: bool) {
     DECODER_BUSY.store(flag, Ordering::Relaxed);
+}
+
+// Counter for Total Samples
+pub static VOLUME: LazyLock<AtomicU32> = LazyLock::new(|| AtomicU32::new(1.0f32.to_bits()));
+
+pub fn set_volume(volume: f32) {
+    VOLUME.store(volume.to_bits(), Ordering::Relaxed);
+}
+
+pub fn get_volume() -> f32 {
+    f32::from_bits(VOLUME.load(Ordering::Relaxed))
 }
