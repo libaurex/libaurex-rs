@@ -5,12 +5,14 @@ use std::time::Duration;
 use libaurex::aurex::Player;
 use libaurex::aurex::PlayerCallback;
 use libaurex::enums::{ResamplingQuality, EngineSignal};
+use std::process;
 
 
 struct Callback;
 impl PlayerCallback for Callback {
     fn on_player_event(&self, _event:EngineSignal) {
-        println!("Media Ended.")
+        println!("Media Ended.");
+        process::exit(0)
     }
 }
 
