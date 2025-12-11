@@ -31,6 +31,7 @@ use std::{
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use tokio::sync::{Mutex as async_Mutex, oneshot};
+use tokio::runtime::Handle;
 
 #[allow(unused_imports)]
 use ffmpeg_next::{self as av, ffi::AVAudioFifo, frame::Audio as AudioFrame, media, sys};
@@ -241,22 +242,26 @@ impl AudioEngine {
         engine: Arc<async_Mutex<Self>>,
         receiver: Receiver<EngineSignal>,
     ) -> Result<(), i32> {
-        let res = thread::spawn(async move || {
+
+        tokio::task::spawn_blocking(move || {
+            let rt_handle = Handle::current();
+
             for signal in receiver {
-                match signal {
-                    EngineSignal::MediaEnd => {
-                        set_decoder_eof(false);
-                        let mut m_engine = engine.lock().await;
-                        _ = m_engine.pause();
-                        _ = m_engine.clear();
-                        println!("Player empty and ready. Executing callback");
-                        m_engine.callback.on_player_event(EngineSignal::MediaEnd);
+                rt_handle.block_on(async {
+                    match signal {
+                        EngineSignal::MediaEnd => {
+                            set_decoder_eof(false);
+                            let mut m_engine = engine.lock().await;
+                            _ = m_engine.pause();
+                            _ = m_engine.clear();
+                            println!("Player empty and ready. Executing callback");
+                            m_engine.callback.on_player_event(EngineSignal::MediaEnd);
+                        }
                     }
-                }
+                });
             }
         });
 
-        _ = res.join();
 
         Ok(())
     }
