@@ -5,7 +5,7 @@ use crate::{
     decoding_loop::decode,
     enums::{CMD, EngineSignal, PlayerState, ResamplingQuality},
     ffi::data_callback,
-    singletons::{self, get_played, set_decoder_eof, set_total},
+    singletons::{self, get_played, get_volume as f_get_volume, set_volume as f_set_volume, set_decoder_eof, set_total},
     structs::Decoder,
 };
 
@@ -177,6 +177,14 @@ impl AudioEngine {
         }
         let played_samples = get_played() as f64;
         Ok(played_samples / sample_rate)
+    }
+
+    pub fn get_volume(&self) -> f32 {
+        f_get_volume()
+    }
+
+    pub fn set_volume(&self, volume: f32) {
+        f_set_volume(volume);
     }
 
     //Clears the audio buffer
