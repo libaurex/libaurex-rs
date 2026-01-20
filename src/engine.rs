@@ -1,11 +1,11 @@
 //engine.rs
 
 use crate::{
-    aurex::PlayerCallback,
+    aurex::{Player, PlayerCallback},
     decoding_loop::decode,
     enums::{CMD, EngineSignal, PlayerState, ResamplingQuality},
     ffi::data_callback,
-    singletons::{self, get_played, get_volume as f_get_volume, set_volume as f_set_volume, set_decoder_eof, set_total},
+    singletons::{self, get_played, get_volume as f_get_volume, set_decoder_eof, set_total, set_volume as f_set_volume},
     structs::Decoder,
 };
 
@@ -18,15 +18,10 @@ use soxr::{
 };
 
 use std::{
-    ffi::c_void,
-    i64,
-    mem::zeroed,
-    ptr,
-    sync::{
-        Arc, Mutex,
+    any::Any, ffi::c_void, i64, mem::zeroed, ptr, sync::{
+        Arc, Mutex, Weak,
         atomic::{AtomicBool, Ordering},
-    },
-    thread::{self}, time::Duration,
+    }, thread::{self}, time::Duration
 };
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
@@ -41,6 +36,7 @@ unsafe impl Send for AudioFifo {}
 
 pub struct AudioEngine {
     device: miniaudio::ma_device,
+    callback_ctx: Option<Box<dyn Any>>,
     buffer: Arc<Mutex<AudioFifo>>,
     channels: i32,
     sample_rate: Arc<Mutex<i32>>,
@@ -130,17 +126,26 @@ impl AudioEngine {
             user_data: user_data,
             callback: callback,
             decoder: decoder,
+            callback_ctx: None
         };
 
         Ok(Arc::new(async_Mutex::new(engine)))
+    }
+
+    pub fn get_callback_context<T: Any>(&mut self) -> Option<&mut T> {
+        self.callback_ctx.as_mut()?.downcast_mut::<T>()
     }
 
     pub fn get_duration(&self) -> f64 {
         *self.duration.lock().unwrap()
     }
 
+    pub fn set_callback_context<T: Any>(&mut self, data: T) {
+        self.callback_ctx = Some(Box::new(data));
+    }
+
     //Loads files. Automatically stops previous playback if any
-    pub async fn load(audio_engine: Arc<async_Mutex<Self>>, file: &str) -> Result<(), i32> {
+    pub async fn load(audio_engine: Arc<async_Mutex<Self>>, file: &str, player: Weak<Player>) -> Result<(), i32> {
         // Clear any existing playback first
         let mut engine = audio_engine.lock().await;
         engine.clear()?;
@@ -154,8 +159,8 @@ impl AudioEngine {
             _ = AudioEngine::spawn_listening_thread(
                 audio_engine.clone(),
                 engine.signal_receiver.clone(),
+                player
             );
-            _ = engine.spawn_seeker_thread(rx.clone());
             engine.initialised = true;
         }
 
@@ -249,12 +254,16 @@ impl AudioEngine {
     fn spawn_listening_thread(
         engine: Arc<async_Mutex<Self>>,
         receiver: Receiver<EngineSignal>,
+        player: Weak<Player>
     ) -> Result<(), i32> {
 
         tokio::task::spawn_blocking(move || {
             let rt_handle = Handle::current();
 
             for signal in receiver {
+                let maybe_player = player.upgrade();
+                if maybe_player.is_none() { break; }
+                let player_arc = maybe_player.unwrap();
                 rt_handle.block_on(async {
                     match signal {
                         EngineSignal::MediaEnd => {
@@ -263,7 +272,7 @@ impl AudioEngine {
                             _ = m_engine.pause();
                             _ = m_engine.clear();
                             println!("Player empty and ready. Executing callback");
-                            m_engine.callback.on_player_event(EngineSignal::MediaEnd);
+                            m_engine.callback.on_player_event(EngineSignal::MediaEnd, player_arc);
                         }
                     }
                 });
@@ -274,7 +283,7 @@ impl AudioEngine {
         Ok(())
     }
 
-    pub async fn seek(&mut self, time_s: f64) -> Result<(), i32> {
+    pub fn seek(&mut self, time_s: f64) -> Result<(), i32> {
 
         loop {
             if *self.state.lock().unwrap() != PlayerState::INITIALISED {
@@ -286,6 +295,7 @@ impl AudioEngine {
         }
         _ = self.pause();
 
+        
         {
             let decoder = self.decoder.lock().unwrap();
             decoder
@@ -295,15 +305,21 @@ impl AudioEngine {
 
         _ = self.clear();
 
-        let (tx_done, rx_done) = oneshot::channel();
-        _ = self.tx.clone().unwrap().send(CMD::Seek {
-            time_s: time_s,
-            done: tx_done,
-        });
-        _ = rx_done.await;
-
         {
-            let decoder = self.decoder.lock().unwrap();
+            let mut decoder = self.decoder.lock().unwrap();
+                        
+            let target_ts = (time_s * 1_000_000.0) as i64;
+
+            _ = decoder
+                .format_ctx
+                .as_mut()
+                .unwrap()
+                .seek(target_ts, i64::MIN..i64::MAX);
+            decoder.decoder.flush();
+            let mut dump = AudioFrame::empty();
+            _ = decoder.resampler.flush(&mut dump);
+            _ = decoder.soxr_resampler.clear();
+
             decoder
                 .main_decoder_cancel_flag
                 .store(false, Ordering::Relaxed);
@@ -344,32 +360,6 @@ impl AudioEngine {
 
 
     // <- DECODING LOGIC ->
-    fn spawn_seeker_thread(&mut self, rx: Receiver<CMD>) -> Result<(), i32> {
-        let decoder_handle = self.decoder.clone();
-
-        thread::spawn(move || {
-            for cmd in rx {
-                if let CMD::Seek { time_s, done } = cmd {
-                    let mut decoder = decoder_handle.lock().unwrap();
-                    
-                    let target_ts = (time_s * 1_000_000.0) as i64;
-
-                    _ = decoder
-                        .format_ctx
-                        .as_mut()
-                        .unwrap()
-                        .seek(target_ts, i64::MIN..i64::MAX);
-                    decoder.decoder.flush();
-                    let mut dump = AudioFrame::empty();
-                    _ = decoder.resampler.flush(&mut dump);
-                    _ = decoder.soxr_resampler.clear();
-                    _ = done.send(());
-                }
-            }
-        });
-
-        Ok(())
-    }
 
     fn spawn_decoder_thread(&mut self, rx: Receiver<CMD>) -> Result<(), i32> {
         let sample_rate_handle = self.sample_rate.clone();

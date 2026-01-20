@@ -7,7 +7,7 @@ use crate::{
 };
 
 use std::{
-    sync::{Arc}
+    any::Any, sync::Arc
 };
 
 use tokio::sync::Mutex as async_Mutex;
@@ -19,7 +19,7 @@ pub struct Player {
 
 #[uniffi::export(callback_interface)]
 pub trait PlayerCallback: Send + Sync {
-    fn on_player_event(&self, event: EngineSignal);
+    fn on_player_event(&self, event: EngineSignal, player: Arc<Player>);
 }
 
 #[uniffi::export]
@@ -31,7 +31,7 @@ impl Player {
         resampling_quality: Option<ResamplingQuality>,
         callback: Box<dyn PlayerCallback>
 
-    ) -> Result<Self, PlayerError> {
+    ) -> Result<Arc<Self>, PlayerError> {
 
         let engine = AudioEngine::new(resampling_quality, callback);
         if engine.is_err() {
@@ -39,21 +39,22 @@ impl Player {
         }
 
         Ok(
-            Player { engine: engine.unwrap() }
+            Arc::new(Player { engine: engine.unwrap() })
         )
     }
 
-    pub async fn get_duration(&self) -> f64 {
+    pub async fn get_duration(self: Arc<Self>) -> f64 {
         let engine = self.engine.lock().await;
         engine.get_duration()
     }
 
-    pub async fn load(&self, file: &str) -> Result<(), PlayerError> {
-        _ = AudioEngine::load(self.engine.clone(), file).await;
+    pub async fn load(self: Arc<Self>, file: &str) -> Result<(), PlayerError> {
+        let player_clone = Arc::clone(&self);
+        _ = AudioEngine::load(self.engine.clone(), file, Arc::downgrade(&player_clone)).await;
         Ok(())
     }
 
-    pub async fn get_progress(&self) -> Result<f64, PlayerError> {
+    pub async fn get_progress(self: Arc<Self>) -> Result<f64, PlayerError> {
         let engine = self.engine.lock().await;
         let res = engine.get_progress();
         if res.is_err() {
@@ -62,40 +63,58 @@ impl Player {
         Ok(res.unwrap())
     }
 
-    pub async fn clear(&self) -> Result<(), PlayerError> {
+    pub async fn clear(self: Arc<Self>) -> Result<(), PlayerError> {
         let mut engine = self.engine.lock().await;
         _ = engine.clear();
         Ok(())
     }
 
-    pub async fn play(&self) -> Result<(), PlayerError> {
+    pub async fn play(self: Arc<Self>) -> Result<(), PlayerError> {
         let mut engine = self.engine.lock().await;
         _ = engine.play();
         Ok(())
     }
 
-    pub async fn pause(&self) -> Result<(), PlayerError> {
+    pub async fn pause(self: Arc<Self>) -> Result<(), PlayerError> {
         let mut engine = self.engine.lock().await;
         _ = engine.pause();
         Ok(())
     }
 
-    pub async fn seek(&self, time_s: f64) -> Result<(), PlayerError> {
+    pub async fn seek(self: Arc<Self>, time_s: f64) -> Result<(), PlayerError> {
         let mut engine = self.engine.lock().await;
-        _ = engine.seek(time_s).await;
+        _ = engine.seek(time_s);
 
         Ok(())
     }
 
-    pub async fn get_volume(&self) -> f32 {
+    pub async fn get_volume(self: Arc<Self>) -> f32 {
         let engine = self.engine.lock().await;
         engine.get_volume()
     }
 
-    pub async fn set_volume(&self, volume: f32) {
+    pub async fn set_volume(self: Arc<Self>, volume: f32) {
         let engine = self.engine.lock().await;
         let mut m_volume = volume;
         if m_volume > 1.0 {m_volume = 1.0;}
         engine.set_volume(m_volume);
+    }
+}
+
+impl Player {
+    pub async fn set_callback_context<T: Any>(self: Arc<Self>, data: T) {
+        let mut engine = self.engine.lock().await;
+        engine.set_callback_context(data);
+    }
+
+    pub async fn with_callback_ctx_mut<T, F, R>(&self, f: F) -> Option<R>
+    where
+        T: Any,
+        F: FnOnce(&mut T) -> R, 
+    {
+        let mut engine = self.engine.lock().await;
+        let context = engine.get_callback_context::<T>()?;
+        let result = f(context);
+        Some(result)
     }
 }

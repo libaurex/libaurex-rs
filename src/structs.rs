@@ -5,6 +5,7 @@ use ffmpeg_next::software::resampling::context::Context as Resampler;
 use soxr::format::Interleaved;
 use soxr::Soxr;
 
+use std::any::Any;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
