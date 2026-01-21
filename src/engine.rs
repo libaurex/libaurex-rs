@@ -144,7 +144,7 @@ impl AudioEngine {
         self.callback_ctx = Some(Box::new(data));
     }
 
-    //Loads files. Automatically stops previous playback if any
+    ///Loads files. Automatically stops previous playback if any. Requires an arc clone of the player object because it's later passed as context to media end callback
     pub async fn load(audio_engine: Arc<async_Mutex<Self>>, file: &str, player: Weak<Player>) -> Result<(), i32> {
         // Clear any existing playback first
         let mut engine = audio_engine.lock().await;
@@ -251,6 +251,7 @@ impl AudioEngine {
         Ok(())
     }
 
+    ///Spawns a thread to listen for any events that are triggered by the audio engine
     fn spawn_listening_thread(
         engine: Arc<async_Mutex<Self>>,
         receiver: Receiver<EngineSignal>,
@@ -360,7 +361,6 @@ impl AudioEngine {
 
 
     // <- DECODING LOGIC ->
-
     fn spawn_decoder_thread(&mut self, rx: Receiver<CMD>) -> Result<(), i32> {
         let sample_rate_handle = self.sample_rate.clone();
         let buffer_handle = self.buffer.clone();

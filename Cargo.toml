@@ -1,7 +1,7 @@
 #ffmpeg 7.1.1
 [package]
 name = "libaurex"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 license = "Apache-2.0"
 description = "Cross-platform high-level audio API"

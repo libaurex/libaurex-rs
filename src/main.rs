@@ -67,15 +67,15 @@ async fn main() {
         match get_all_paths(&args[2]) {
             Ok(mut files) => {
                 player.clone().load(files.pop_front().unwrap().to_str().unwrap()).await;
-                player.clone().play().await;
-                player.clone().set_callback_context(files).await;
+                player.play().await;
+                player.set_callback_context(files).await;
             },
             Err(e) => {
                 eprintln!("Error: {}", e)
             }
         }
     } else {
-        player.clone().set_callback_context(Vec::<PathBuf>::new()).await;
+        player.set_callback_context(Vec::<PathBuf>::new()).await;
     
         _ = player.clone().load(&args[1].clone()).await;
         // player.set_volume(0.01).await;

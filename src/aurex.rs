@@ -22,6 +22,8 @@ pub trait PlayerCallback: Send + Sync {
     fn on_player_event(&self, event: EngineSignal, player: Arc<Player>);
 }
 
+//Tech debt here. It does not need to be async but once I had a function that needed async but then I figured out a simpler way. Now I'm leaving it as it is
+
 #[uniffi::export]
 impl Player {
 
@@ -43,18 +45,19 @@ impl Player {
         )
     }
 
-    pub async fn get_duration(self: Arc<Self>) -> f64 {
+    pub async fn get_duration(&self) -> f64 {
         let engine = self.engine.lock().await;
         engine.get_duration()
     }
 
+    ///An Arc clone is needed to call this function cause the player object is also passed as context to the callback
     pub async fn load(self: Arc<Self>, file: &str) -> Result<(), PlayerError> {
         let player_clone = Arc::clone(&self);
         _ = AudioEngine::load(self.engine.clone(), file, Arc::downgrade(&player_clone)).await;
         Ok(())
     }
 
-    pub async fn get_progress(self: Arc<Self>) -> Result<f64, PlayerError> {
+    pub async fn get_progress(&self) -> Result<f64, PlayerError> {
         let engine = self.engine.lock().await;
         let res = engine.get_progress();
         if res.is_err() {
@@ -63,37 +66,37 @@ impl Player {
         Ok(res.unwrap())
     }
 
-    pub async fn clear(self: Arc<Self>) -> Result<(), PlayerError> {
+    pub async fn clear(&self) -> Result<(), PlayerError> {
         let mut engine = self.engine.lock().await;
         _ = engine.clear();
         Ok(())
     }
 
-    pub async fn play(self: Arc<Self>) -> Result<(), PlayerError> {
+    pub async fn play(&self) -> Result<(), PlayerError> {
         let mut engine = self.engine.lock().await;
         _ = engine.play();
         Ok(())
     }
 
-    pub async fn pause(self: Arc<Self>) -> Result<(), PlayerError> {
+    pub async fn pause(&self) -> Result<(), PlayerError> {
         let mut engine = self.engine.lock().await;
         _ = engine.pause();
         Ok(())
     }
 
-    pub async fn seek(self: Arc<Self>, time_s: f64) -> Result<(), PlayerError> {
+    pub async fn seek(&self, time_s: f64) -> Result<(), PlayerError> {
         let mut engine = self.engine.lock().await;
         _ = engine.seek(time_s);
 
         Ok(())
     }
 
-    pub async fn get_volume(self: Arc<Self>) -> f32 {
+    pub async fn get_volume(&self) -> f32 {
         let engine = self.engine.lock().await;
         engine.get_volume()
     }
 
-    pub async fn set_volume(self: Arc<Self>, volume: f32) {
+    pub async fn set_volume(&self, volume: f32) {
         let engine = self.engine.lock().await;
         let mut m_volume = volume;
         if m_volume > 1.0 {m_volume = 1.0;}
@@ -101,12 +104,24 @@ impl Player {
     }
 }
 
+
+///Rust only impl block
 impl Player {
-    pub async fn set_callback_context<T: Any>(self: Arc<Self>, data: T) {
+    pub async fn set_callback_context<T: Any>(&self, data: T) {
         let mut engine = self.engine.lock().await;
         engine.set_callback_context(data);
     }
 
+    ///Function to execute callback logic if previously set
+    /// T = Type of the context
+    /// F = Function
+    /// R = The return type
+    ///Example:
+    /// ```
+    /// let file = player.with_callback_ctx_mut::<VecDeque<PathBuf>, _, PathBuf>(|files| {
+    ///     files.pop_front().expect("Failed to get next path")
+    /// }).await;
+    /// ```
     pub async fn with_callback_ctx_mut<T, F, R>(&self, f: F) -> Option<R>
     where
         T: Any,
