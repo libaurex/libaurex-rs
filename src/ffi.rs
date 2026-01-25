@@ -1,5 +1,5 @@
 use ffmpeg_next::sys;
-use std::{ffi::c_void, i32, ptr, sync::Arc};
+use std::{ffi::c_void, i32, ptr, sync::Arc, thread, time::Duration};
 use miniaudio_aurex as miniaudio;
 
 use crate::{
@@ -30,7 +30,7 @@ pub extern "C" fn data_callback(
         let bytes_per_frame = bytes_per_sample.saturating_mul(channels);
         let total_bytes = (frame_count as usize).saturating_mul(bytes_per_frame);
 
-        // NOTE: pUserData is a pointer to the inner Mutex<(Arc<Mutex<AudioFifo>>, Sender<EngineSignal>)>
+        // pUserData is a pointer to the inner Mutex<(Arc<Mutex<AudioFifo>>, Sender<EngineSignal>)>
         // This pointer was set using Arc::as_ptr(...) in engine.rs so we must not call Arc::from_raw here.
         let user_data_ptr = (*p_device).pUserData as *const Mutex<(Arc<Mutex<AudioFifo>>, Sender<EngineSignal>)>;
         if user_data_ptr.is_null() {
@@ -39,7 +39,7 @@ pub extern "C" fn data_callback(
             return;
         }
 
-        // SAFETY: the owning Arc is kept alive by AudioEngine. Use the raw pointer as a reference.
+        //the owning Arc is kept alive by AudioEngine. Use the raw pointer as a reference.
         let user_data_ref: &Mutex<(Arc<Mutex<AudioFifo>>, Sender<EngineSignal>)> = &*user_data_ptr;
 
         match user_data_ref.try_lock() {
@@ -53,6 +53,13 @@ pub extern "C" fn data_callback(
                     Ok(buffer_guard) => {
                         let fifo = buffer_guard.0;
                         let available = sys::av_audio_fifo_size(fifo);
+
+                        // Prevent buffer underrun/clicking at startup.
+                        if available < (frame_count as i32) && !get_decoder_eof() {
+                            ptr::write_bytes(p_output as *mut u8, 0, total_bytes);
+                            return;
+                        }
+
                         let mut data_ptrs = [p_output as *mut c_void];
 
                         let frames_to_read = available.min(frame_count as i32);

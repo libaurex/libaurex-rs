@@ -1,4 +1,5 @@
 use crate::{engine::AudioFifo, singletons::set_decoder_eof, structs::Decoder};
+use ffmpeg_next::format::output;
 #[allow(unused_imports)]
 use ffmpeg_next::{self as av, ffi::AVAudioFifo, frame::Audio as AudioFrame, media, sys};
 
@@ -13,6 +14,7 @@ pub fn decode(
     let mut m_decoder = decoder_handle.lock().unwrap();
     let mut format_ctx = m_decoder.format_ctx.take().unwrap();
     drop(m_decoder);
+
 
     //Decoding loop
     for (stream, packet) in format_ctx.packets() {
@@ -36,7 +38,7 @@ pub fn decode(
         let mut frame = AudioFrame::empty();
 
         while m_decoder.decoder.receive_frame(&mut frame).is_ok() {
-            let mut resampled_frame = AudioFrame::empty();
+            let mut resampled_frame = AudioFrame::empty();   
             _ = m_decoder.resampler.run(&frame, &mut resampled_frame);
 
             //Convert ffmpeg's raw bytes into soxr's required array types
