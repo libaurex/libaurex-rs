@@ -63,7 +63,7 @@ impl AudioEngine {
 
         let mut device: miniaudio::ma_device = unsafe { std::mem::zeroed() };
         let buffer_ptr =
-            unsafe { sys::av_audio_fifo_alloc(sys::AVSampleFormat::AV_SAMPLE_FMT_S32, 2, 128_000) };
+            unsafe { sys::av_audio_fifo_alloc(sys::AVSampleFormat::AV_SAMPLE_FMT_S32, 2, 480_000) };
         let buffer = Arc::new(Mutex::new(AudioFifo(buffer_ptr)));
 
         let (signal_tx, signal_rx) = unbounded::<EngineSignal>();
@@ -212,6 +212,23 @@ impl AudioEngine {
 
     //Plays
     pub fn play(&mut self) -> Result<(), i32> {
+
+        //Check if we have enough samples for playback so it doesnt cause artifacting    
+        let mut size = unsafe {
+            sys::av_audio_fifo_size(self.buffer.lock().unwrap().0)
+        };
+
+        let sample_rate = {self.sample_rate.lock().unwrap().clone()};
+        let minimum_samples = sample_rate * 5;
+
+        while size <= minimum_samples {
+            let buffer = self.buffer.lock().unwrap().0;
+            size = unsafe {sys::av_audio_fifo_size(buffer)};
+            println!("Not enough samples: {} / {}", size, minimum_samples);
+            thread::sleep(Duration::from_millis(10));
+        }
+        
+
         if *self.state.lock().unwrap() != PlayerState::PLAYING {
             if unsafe { miniaudio::ma_device_start(&mut self.device) }
                 != miniaudio::ma_result_MA_SUCCESS
@@ -219,6 +236,7 @@ impl AudioEngine {
                 println!("Failed to start device");
             } else {
                 *self.state.lock().unwrap() = PlayerState::PLAYING;
+                return Err(-1);
             }
         }
 
@@ -439,8 +457,8 @@ impl AudioEngine {
                         .expect("Failed to setup soxr");
 
                     //Prime the resampler. At higher quality levels there's artifacting at the start due to lack of previous data
-                    let silence: Vec<[i32; 2]> = vec![[0, 0]; 1024]; 
-                    let mut dummy_output: Vec<[i32; 2]> = vec![[0, 0]; 2048];
+                    let silence: Vec<[i32; 2]> = vec![[0, 0]; (m_decoder.decoder.rate()) as usize]; 
+                    let mut dummy_output: Vec<[i32; 2]> = vec![[0, 0]; (m_decoder.decoder.rate()) as usize];
                     _ = m_decoder.soxr_resampler.process(&silence, &mut dummy_output);
 
                     let mut state = state_handle.lock().unwrap();
