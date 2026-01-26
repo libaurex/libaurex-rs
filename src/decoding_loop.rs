@@ -8,13 +8,15 @@ use std::{ffi::c_void, sync::{Arc, Mutex, atomic::Ordering}};
 pub fn decode(
         decoder_handle: Arc<Mutex<Decoder>>,
         sample_rate_handle: Arc<Mutex<i32>>,
-        buffer_handle: Arc<Mutex<AudioFifo>>
-    ) -> Result<(), i32> {
+        buffer_handle: Arc<Mutex<AudioFifo>>,
+        target_buffer_size: i32
+    ) -> Result<bool, i32> {
 
     let mut m_decoder = decoder_handle.lock().unwrap();
     let mut format_ctx = m_decoder.format_ctx.take().unwrap();
     drop(m_decoder);
 
+    let mut frames_written = 0;
 
     //Decoding loop
     for (stream, packet) in format_ctx.packets() {
@@ -24,7 +26,7 @@ pub fn decode(
         if m_decoder.main_decoder_cancel_flag.load(Ordering::Relaxed) {
             m_decoder.format_ctx = Some(format_ctx);
             println!("Interrupting decoder");
-            return Ok::<(), i32>(());
+            return Ok::<bool, i32>(false);
         }
 
         if stream.index() != m_decoder.audio_stream_index {
@@ -81,6 +83,13 @@ pub fn decode(
                 if written < 0 {
                     // Todo
                 }
+
+                frames_written += written;
+                let current_size = unsafe { sys::av_audio_fifo_size(buffer_handle.lock().unwrap().0) };
+                if current_size >= target_buffer_size {
+                    m_decoder.format_ctx = Some(format_ctx);
+                    return Ok(false); // Not EOF, just buffer full
+                }
             }
         }
     }
@@ -91,5 +100,5 @@ pub fn decode(
 
     set_decoder_eof(true);
 
-    Ok(())
+    Ok(true)
 }

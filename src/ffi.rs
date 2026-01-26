@@ -54,10 +54,14 @@ pub extern "C" fn data_callback(
                         let fifo = buffer_guard.0;
                         let available = sys::av_audio_fifo_size(fifo);
 
-                        // Prevent buffer underrun/clicking at startup.
-                        if available < (frame_count as i32) && !get_decoder_eof() {
-                            ptr::write_bytes(p_output as *mut u8, 0, total_bytes);
-                            return;
+                        const LOW_WATER_MARK_SECONDS: i32 = 5;
+                        let sample_rate = (*p_device).sampleRate as i32;
+                        let low_water_mark = sample_rate * LOW_WATER_MARK_SECONDS;
+
+                        if available < low_water_mark && !get_decoder_eof() {
+                            // Request more data
+                            _ = _signal_tx.try_send(EngineSignal::BufferLow);
+
                         }
 
                         let mut data_ptrs = [p_output as *mut c_void];

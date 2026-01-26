@@ -2,7 +2,7 @@ use std::fmt;
 use soxr::{params::{QualitySpec, QualityRecipe, QualityFlags}};
 use tokio::sync::oneshot;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum PlayerState {
     LOADING = 0,
     LOADED,
@@ -12,46 +12,31 @@ pub enum PlayerState {
     INITIALISED
 }
 
+impl fmt::Display for PlayerState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            PlayerState::LOADING => "loading",
+            PlayerState::LOADED => "loaded",
+            PlayerState::PLAYING => "playing",
+            PlayerState::PAUSED => "paused",
+            PlayerState::EMPTY => "empty",
+            PlayerState::INITIALISED => "initialised",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 #[derive(PartialEq)]
 #[derive(uniffi::Enum)]
 pub enum EngineSignal {
-    MediaEnd
+    MediaEnd,
+    BufferLow
 }
-
+#[derive(PartialEq)]
 pub enum CMD {
     Start(String, ResamplingQuality),
-    Seek {
-        time_s: f64,
-        done: oneshot::Sender<()>
-    },
-    Resume
-}
-
-impl PartialEq for CMD {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            // Compare Start(String, ResamplingQuality)
-            (
-                CMD::Start(a_url, a_quality),
-                CMD::Start(b_url, b_quality)
-            ) => a_url == b_url && a_quality == b_quality,
-
-            // Compare Seek { time_s, ... }
-            (
-                CMD::Seek { time_s: a, .. },
-                CMD::Seek { time_s: b, .. }
-            ) => a == b,
-
-            //Compare resume
-            (
-                CMD::Resume,
-                CMD::Resume
-            ) => true,
-
-            // Anything else isn't equal
-            _ => false,
-        }
-    }
+    Resume,
+    FillBuffer
 }
 
 #[derive(uniffi::Error, Debug)]
