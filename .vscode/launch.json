@@ -1,0 +1,23 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'libaurex'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=libaurex",
+                    "--package=libaurex"
+                ],
+                "filter": {
+                    "name": "libaurex",
+                    "kind": "bin"
+                }
+            },
+            "args": ["D:/Apple Music/Madison Beer/15 MINUTES - Single/01 15 MINUTES.m4a"], 
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

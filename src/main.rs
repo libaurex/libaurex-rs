@@ -99,9 +99,10 @@ async fn main() {
     
         _ = player.clone().load(&args[1].clone()).await;
         // player.set_volume(0.01).await;
-        // _ = player.clone().seek(30.0).await;
         // thread::sleep(Duration::from_secs(2));
         _ = player.play().await;
+        
+        _ = player.seek(80.0).await;
         // thread::sleep(Duration::from_millis(100));
     }
 

@@ -5,7 +5,7 @@ use crate::{
     decoding_loop::decode,
     enums::{CMD, EngineSignal, PlayerState, ResamplingQuality},
     ffi::data_callback,
-    singletons::{self, get_played, get_volume as f_get_volume, set_decoder_eof, set_total, set_volume as f_set_volume},
+    singletons::{self, get_decoder_eof, get_played, get_volume as f_get_volume, set_decoder_eof, set_total, set_volume as f_set_volume},
     structs::Decoder,
 };
 
@@ -224,7 +224,6 @@ impl AudioEngine {
         while size <= minimum_samples {
             let buffer = self.buffer.lock().unwrap().0;
             size = unsafe {sys::av_audio_fifo_size(buffer)};
-            println!("Not enough samples: {} / {}", size, minimum_samples);
             thread::sleep(Duration::from_millis(10));
         }
         
@@ -292,6 +291,12 @@ impl AudioEngine {
                             _ = m_engine.clear();
                             println!("Player empty and ready. Executing callback");
                             m_engine.callback.on_player_event(EngineSignal::MediaEnd, player_arc);
+                        },
+                        EngineSignal::BufferLow => {
+                            let m_engine = engine.lock().await;
+                            if let Some(tx) = &m_engine.tx {
+                                _ = tx.send(CMD::FillBuffer);
+                            }
                         }
                     }
                 });
@@ -305,8 +310,11 @@ impl AudioEngine {
     pub fn seek(&mut self, time_s: f64) -> Result<(), i32> {
 
         loop {
-            if *self.state.lock().unwrap() != PlayerState::INITIALISED {
-                println!("Not initialised");
+            let state = self.state.lock().unwrap();
+
+            if (*state == PlayerState::EMPTY) || (*state == PlayerState::LOADING) {
+                println!("Invalid state");
+                println!("State: {}", *state);
                 thread::sleep(Duration::from_millis(5));
             } else {
                 break;
@@ -389,6 +397,9 @@ impl AudioEngine {
         let decoder_handle = self.decoder.clone();
 
         thread::spawn(move || {
+            let target_buffer_size = (*sample_rate_handle.lock().unwrap() * 10) as i32; // 10 seconds buffered
+            let low_water_mark = (*sample_rate_handle.lock().unwrap() * 5) as i32; // refill at 5 seconds
+
             for cmd in rx {
                 if let CMD::Start(url, resampling_quality) = cmd {
                     let mut m_decoder = decoder_handle.lock().unwrap();
@@ -470,10 +481,25 @@ impl AudioEngine {
                         decoder_handle.clone(),
                         sample_rate_handle.clone(),
                         buffer_handle.clone(),
+                        target_buffer_size
                     );
                 }
                 else if let CMD::Resume = cmd {
-                    _ = decode(decoder_handle.clone(), sample_rate_handle.clone(), buffer_handle.clone());
+                    _ = decode(decoder_handle.clone(), sample_rate_handle.clone(), buffer_handle.clone(), target_buffer_size);
+                }
+                else if let CMD::FillBuffer = cmd {
+                    let current_size = unsafe { 
+                        sys::av_audio_fifo_size(buffer_handle.lock().unwrap().0) 
+                    };
+                    
+                    if current_size < low_water_mark && !get_decoder_eof() {
+                        _ = decode(
+                            decoder_handle.clone(),
+                            sample_rate_handle.clone(),
+                            buffer_handle.clone(),
+                            target_buffer_size,
+                        );
+                    }
                 }
             }
         });
