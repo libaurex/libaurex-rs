@@ -1,4 +1,5 @@
 pub mod engine;
+pub mod api;
 mod ffi;
 pub mod enums;
 mod singletons;
