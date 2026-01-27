@@ -74,7 +74,7 @@ async fn main() {
         return;
     }
  
-    let player = Player::new(Some(ResamplingQuality::High), 
+    let player = Player::new(Some(ResamplingQuality::VeryHigh), 
         Box::new(Callback)
     ).await.unwrap();
 
