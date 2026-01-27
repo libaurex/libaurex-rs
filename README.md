@@ -1,13 +1,9 @@
 # libaurex
 libaurex is a cross-platform, low latency, high level audio API written in Rust.
 
-# v0.1.5
+# v0.1.6
 ## New Features
-- Callbacks can now have the Player object and any custom data you want. (Only for the native rust API.)
-- Foreign languages (Kotlin, Swift etc.) via UniFFI also get the Player object as context but no custom context through the library, though you can use dependency injection in said foreign languages.
-
-## Bug Fixes
-- Fixed a race condition that sometimes blocked the playback from initiating.
+- Added disk streaming thus reducing memory usage 8x.
 
 # Features
 - Native backends for each platform for low latency audio playback via miniaudio.
@@ -25,7 +21,6 @@ libaurex is a cross-platform, low latency, high level audio API written in Rust.
 
 # Upcoming Features
 - A full fledged media player API.
-- Streaming support (both disk and HTTPS, right now it loads the entire file in memory, good enough for music but not for let's say, a 12 hour podacast).
 
 # Contributing
 Patches welcome. Bug reports too, but make them useful.
