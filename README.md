@@ -6,7 +6,7 @@ libaurex is a cross-platform, low latency, high level audio API written in Rust.
 - Added disk streaming thus reducing memory usage 8x.
 
 # Features
-- Native backends for each platform for low latency audio playback via miniaudio.
+- Native backends for each platform for low latency audio playback via CPAL.
     - WASAPI for Windows.
     - AAUDIO for Android.
     - ALSA for Linux.
