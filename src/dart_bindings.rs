@@ -1,17 +1,15 @@
-//THIS FILE IS MOSTLY LLM GENERATED
-
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::mem;
 use crate::aurex::{Player, PlayerCallback};
 use crate::enums::{ResamplingQuality, EngineSignal, PlayerError};
+use dart_sys::{Dart_PostCObject, Dart_CObject, Dart_Port};
 
 // === GLOBAL STATE ===
 static PLAYER: OnceLock<Arc<Player>> = OnceLock::new();
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-
-// Store the Dart native port instead of a callback
-static DART_PORT: Mutex<Option<i64>> = Mutex::new(None);
+static DART_PORT: Mutex<Option<Dart_Port>> = Mutex::new(None);
 
 // === CALLBACK ADAPTER ===
 struct FFICallback;
@@ -25,18 +23,16 @@ impl PlayerCallback for FFICallback {
             event_code = -1;
         }
         
-        // Send message to Dart port (safe from any thread)
         if let Some(port) = *DART_PORT.lock().unwrap() {
             unsafe {
-                dart_post_integer(port, event_code as i64);
+                let mut message: Dart_CObject = mem::zeroed();
+                message.type_ = dart_sys::Dart_CObject_Type_Dart_CObject_kInt64;
+                message.value.as_int64 = event_code as i64;
+                
+                Dart_PostCObject(port, &mut message);
             }
         }
     }
-}
-
-// Dart FFI function to post messages
-unsafe extern "C" {
-    fn dart_post_integer(port_id: i64, message: i64) -> bool;
 }
 
 // === FFI FUNCTIONS ===
@@ -44,14 +40,13 @@ unsafe extern "C" {
 #[unsafe(no_mangle)]
 pub extern "C" fn player_new(
     resampling_quality: i32,
-    dart_port: i64,  // Changed from callback to port
+    dart_port: i64,
 ) -> i32 {
     let rt = RUNTIME.get_or_init(|| {
         tokio::runtime::Runtime::new().unwrap()
     });
 
     rt.block_on(async {
-        // Store the Dart port
         *DART_PORT.lock().unwrap() = Some(dart_port);
         
         let quality = match resampling_quality {
@@ -73,8 +68,6 @@ pub extern "C" fn player_new(
         }
     })
 }
-
-// Rest of your functions stay the same...
 
 #[unsafe(no_mangle)]
 pub extern "C" fn player_load(file_path: *const c_char) -> i32 {

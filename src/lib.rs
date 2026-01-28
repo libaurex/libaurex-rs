@@ -4,6 +4,6 @@ mod singletons;
 pub mod aurex;
 mod structs;
 mod decoding_loop;
-pub mod extern_c_bindings;
+pub mod dart_bindings;
 
 uniffi::setup_scaffolding!();
