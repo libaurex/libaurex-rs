@@ -1,15 +1,16 @@
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::mem;
+use std::collections::VecDeque;
 use crate::aurex::{Player, PlayerCallback};
 use crate::enums::{ResamplingQuality, EngineSignal, PlayerError};
-use dart_sys::{Dart_PostCObject, Dart_CObject, Dart_Port};
 
 // === GLOBAL STATE ===
 static PLAYER: OnceLock<Arc<Player>> = OnceLock::new();
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-static DART_PORT: Mutex<Option<Dart_Port>> = Mutex::new(None);
+
+// Simple event queue - Dart polls this
+static EVENT_QUEUE: Mutex<VecDeque<i32>> = Mutex::new(VecDeque::new());
 
 // === CALLBACK ADAPTER ===
 struct FFICallback;
@@ -22,33 +23,20 @@ impl PlayerCallback for FFICallback {
         } else {
             event_code = -1;
         }
-        
-        if let Some(port) = *DART_PORT.lock().unwrap() {
-            unsafe {
-                let mut message: Dart_CObject = mem::zeroed();
-                message.type_ = dart_sys::Dart_CObject_Type_Dart_CObject_kInt64;
-                message.value.as_int64 = event_code as i64;
-                
-                Dart_PostCObject(port, &mut message);
-            }
-        }
+        // Just push to queue, Dart will poll it
+        EVENT_QUEUE.lock().unwrap().push_back(event_code);
     }
 }
 
 // === FFI FUNCTIONS ===
 
 #[unsafe(no_mangle)]
-pub extern "C" fn player_new(
-    resampling_quality: i32,
-    dart_port: i64,
-) -> i32 {
+pub extern "C" fn player_new(resampling_quality: i32) -> i32 {
     let rt = RUNTIME.get_or_init(|| {
         tokio::runtime::Runtime::new().unwrap()
     });
 
     rt.block_on(async {
-        *DART_PORT.lock().unwrap() = Some(dart_port);
-        
         let quality = match resampling_quality {
             0 => Some(ResamplingQuality::Low),
             1 => Some(ResamplingQuality::Medium),
@@ -67,6 +55,12 @@ pub extern "C" fn player_new(
             Err(PlayerError::Code(c)) => c,
         }
     })
+}
+
+// Poll for events - returns -1 if no events, otherwise returns event code
+#[unsafe(no_mangle)]
+pub extern "C" fn player_poll_event() -> i32 {
+    EVENT_QUEUE.lock().unwrap().pop_front().unwrap_or(-1)
 }
 
 #[unsafe(no_mangle)]
