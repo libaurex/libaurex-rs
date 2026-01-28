@@ -6,13 +6,14 @@ use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex as AsyncMutex;
 use crate::aurex::{Player, PlayerCallback};
 use crate::enums::{ResamplingQuality, EngineSignal, PlayerError};
+use std::sync::Mutex;
 
 // === GLOBAL STATE ===
 static PLAYER: OnceLock<Arc<Player>> = OnceLock::new();
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
 type DartCallback = extern "C" fn(event: i32);
-static DART_CALLBACK: AsyncMutex<Option<DartCallback>> = AsyncMutex::const_new(None);
+static DART_CALLBACK: Mutex<Option<DartCallback>> = Mutex::new(None);
 
 // === CALLBACK ADAPTER ===
 struct FFICallback;
@@ -26,13 +27,9 @@ impl PlayerCallback for FFICallback {
             event_code = -1;
         }
         
-        // We need to call the Dart callback
-        let rt = RUNTIME.get().unwrap();
-        rt.block_on(async {
-            if let Some(cb) = *DART_CALLBACK.lock().await {
-                cb(event_code);
-            }
-        });
+        if let Some(cb) = *DART_CALLBACK.lock().unwrap() {
+            cb(event_code);
+        }
     }
 }
 
@@ -49,7 +46,7 @@ pub extern "C" fn player_new(
 
     rt.block_on(async {
         // Store the callback
-        *DART_CALLBACK.lock().await = Some(callback);
+        *DART_CALLBACK.lock().unwrap() = Some(callback);
         
         let quality = match resampling_quality {
             0 => Some(ResamplingQuality::Low),
