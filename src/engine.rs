@@ -4,7 +4,7 @@ use crate::{
     aurex::{Player, PlayerCallback},
     decoding_loop::decode,
     enums::{CMD, EngineSignal, PlayerState, ResamplingQuality},
-    singletons::{self, add_played, get_decoder_eof, get_played, get_volume as f_get_volume, set_decoder_eof, set_total, set_volume as f_set_volume},
+    singletons::{self, add_played, get_decoder_eof, get_played, get_volume as f_get_volume, set_decoder_eof, set_played, set_total, set_volume as f_set_volume},
     structs::Decoder,
 };
 
@@ -307,6 +307,7 @@ impl AudioEngine {
 
         let tx = self.tx.as_ref().unwrap().clone();
         _ = tx.send(CMD::Resume);
+        set_played((time_s * (*self.sample_rate.lock().unwrap() as f64)) as u64);
         _ = self.play();
 
         Ok(())
@@ -479,7 +480,7 @@ fn build_stream(
         config: cpal::StreamConfig,
         buffer: Arc<Mutex<AudioFifo>>,
         signal_tx: Sender<EngineSignal>,
-        device_sample_rate: i32
+        device_sample_rate: i32,
     ) -> Result<Stream, i32> {
         
         let stream = device.build_output_stream(

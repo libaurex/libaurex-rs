@@ -10,6 +10,10 @@ pub fn reset_played (){
     PLAYED_SAMPLES.store(0, Ordering::Relaxed);
 }
 
+pub fn set_played(samples: u64) {
+    PLAYED_SAMPLES.store(samples, Ordering::Relaxed);
+}
+
 pub fn add_played(samples: u64) {
     PLAYED_SAMPLES.fetch_add(samples, Ordering::Relaxed);
 }
