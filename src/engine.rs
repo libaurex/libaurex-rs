@@ -4,28 +4,29 @@ use crate::{
     aurex::{Player, PlayerCallback},
     decoding_loop::decode,
     enums::{CMD, EngineSignal, PlayerState, ResamplingQuality},
-    ffi::data_callback,
-    singletons::{self, get_decoder_eof, get_played, get_volume as f_get_volume, set_decoder_eof, set_total, set_volume as f_set_volume},
+    singletons::{self, add_played, get_decoder_eof, get_played, get_volume as f_get_volume, set_decoder_eof, set_total, set_volume as f_set_volume},
     structs::Decoder,
 };
 
 use ffmpeg_next::{self};
-use miniaudio_aurex::{self as miniaudio, ma_device_config_init};
 use soxr::{
     Soxr,
     format::{self},
     params::{Interpolation, RuntimeSpec},
 };
 
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::Stream;
+
 use std::{
-    any::Any, ffi::c_void, i64, mem::zeroed, ptr, sync::{
+    any::Any, ffi::c_void, i64, mem::zeroed, sync::{
         Arc, Mutex, Weak,
         atomic::{AtomicBool, Ordering},
     }, thread::{self}, time::Duration
 };
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use tokio::sync::{Mutex as async_Mutex, oneshot};
+use tokio::sync::{Mutex as async_Mutex};
 use tokio::runtime::Handle;
 
 #[allow(unused_imports)]
@@ -35,20 +36,18 @@ pub struct AudioFifo(pub *mut AVAudioFifo);
 unsafe impl Send for AudioFifo {}
 
 pub struct AudioEngine {
-    device: miniaudio::ma_device,
+    stream: Option<Stream>,
     callback_ctx: Option<Box<dyn Any>>,
     buffer: Arc<Mutex<AudioFifo>>,
     channels: i32,
     sample_rate: Arc<Mutex<i32>>,
     state: Arc<Mutex<PlayerState>>,
-    device_config: miniaudio::ma_device_config,
     initialised: bool,
     tx: Option<Sender<CMD>>,
     duration: Arc<Mutex<f64>>, //Total duration in seconds, -1.0 if theres nothing to play
     total_samples: Arc<Mutex<Option<u64>>>, // Total samples in current track
     resampling_quality: ResamplingQuality,
     signal_receiver: Receiver<EngineSignal>,
-    user_data: Arc<Mutex<(Arc<Mutex<AudioFifo>>, Sender<EngineSignal>)>>,
     callback: Box<dyn PlayerCallback>,
     decoder: Arc<Mutex<Decoder>>,
 }
@@ -58,44 +57,24 @@ impl AudioEngine {
         resampling_quality: Option<ResamplingQuality>,
         callback: Box<dyn PlayerCallback>,
     ) -> Result<Arc<async_Mutex<Self>>, i32> {
+        
         let m_resampling_quality = resampling_quality.unwrap_or(ResamplingQuality::High);
         singletons::set_decoder_busy(false);
 
-        let mut device: miniaudio::ma_device = unsafe { std::mem::zeroed() };
+        let host = cpal::default_host();
+        let device = host.default_output_device()
+            .expect("No output device available");
+        let config = device.default_output_config()
+            .expect("Failed to get default output config");
+
+        let sample_rate = config.sample_rate() as i32;
+        let channels = config.channels() as i32;
+        
         let buffer_ptr =
             unsafe { sys::av_audio_fifo_alloc(sys::AVSampleFormat::AV_SAMPLE_FMT_S32, 2, 480_000) };
         let buffer = Arc::new(Mutex::new(AudioFifo(buffer_ptr)));
 
         let (signal_tx, signal_rx) = unbounded::<EngineSignal>();
-        let m_user_data = (buffer.clone(), signal_tx);
-        let user_data = Arc::new(Mutex::new(m_user_data));
-
-        let mut device_config =
-            unsafe { ma_device_config_init(miniaudio::ma_device_type_ma_device_type_playback) };
-
-        device_config.playback.format = miniaudio::ma_format_ma_format_s32;
-        device_config.playback.channels = 0;
-        device_config.sampleRate = 0;
-        device_config.dataCallback = Some(data_callback);
-        device_config.pUserData = Arc::as_ptr(&user_data) as *mut c_void;
-
-        if cfg!(target_os = "windows") {
-            println!("Detected Windows");
-            device_config.wasapi.noAutoConvertSRC = miniaudio::MA_TRUE as u8;
-            device_config.wasapi.noDefaultQualitySRC = miniaudio::MA_TRUE as u8;
-        }
-
-        let device_result =
-            unsafe { miniaudio::ma_device_init(ptr::null_mut(), &device_config, &mut device) };
-
-        if device_result != miniaudio::ma_result_MA_SUCCESS {
-            println!("Failed to init device.");
-        }
-
-        println!(
-            "Detected system configuration: {} channels at {} hz",
-            device.playback.channels, device.sampleRate
-        );
 
         let decoder: Arc<Mutex<Decoder>>;
 
@@ -111,19 +90,17 @@ impl AudioEngine {
         }
 
         let engine = AudioEngine {
-            device: device,
+            stream: Some(build_stream(&device, config.into(), buffer.clone(), signal_tx).unwrap()),
             buffer: buffer,
-            channels: device.playback.channels as i32,
-            sample_rate: Arc::new(Mutex::new(device.sampleRate as i32)),
+            channels: channels,
+            sample_rate: Arc::new(Mutex::new(sample_rate)),
             state: Arc::new(Mutex::new(PlayerState::EMPTY)),
-            device_config: device_config,
             initialised: false,
             tx: None,
             duration: Arc::new(Mutex::new(-1.0)),
             total_samples: Arc::new(Mutex::new(None)),
             resampling_quality: m_resampling_quality,
             signal_receiver: signal_rx,
-            user_data: user_data,
             callback: callback,
             decoder: decoder,
             callback_ctx: None
@@ -154,7 +131,6 @@ impl AudioEngine {
         if !engine.initialised {
             let (tx, rx) = unbounded::<CMD>();
             engine.tx = Some(tx);
-            _ = engine.reinit_device(); //The state is mangled after using it to query the system config, hence re-init
             _ = engine.spawn_decoder_thread(rx.clone());
             _ = AudioEngine::spawn_listening_thread(
                 audio_engine.clone(),
@@ -229,14 +205,7 @@ impl AudioEngine {
         
 
         if *self.state.lock().unwrap() != PlayerState::PLAYING {
-            if unsafe { miniaudio::ma_device_start(&mut self.device) }
-                != miniaudio::ma_result_MA_SUCCESS
-            {
-                println!("Failed to start device");
-            } else {
-                *self.state.lock().unwrap() = PlayerState::PLAYING;
-                return Err(-1);
-            }
+            self.stream.as_ref().unwrap().play().map_err(|_| -1)?;
         }
 
         Ok(())
@@ -245,26 +214,10 @@ impl AudioEngine {
     //Pauses playback
     pub fn pause(&mut self) -> Result<(), i32> {
         if *self.state.lock().unwrap() != PlayerState::PAUSED {
-            if unsafe { miniaudio::ma_device_stop(&mut self.device) }
-                != miniaudio::ma_result_MA_SUCCESS
-            {
-                println!("Failed to stop device");
-            } else {
-                *self.state.lock().unwrap() = PlayerState::PAUSED;
-            }
+            self.stream.as_ref().unwrap().play().map_err(|_| -1)?;
+            *self.state.lock().unwrap() = PlayerState::PAUSED;
         }
 
-        Ok(())
-    }
-
-    // It has this weird quirk, the state gets mangled after querying system rates -> Assertion failed: ma_device_get_state(pDevice) == ma_device_state_starting
-    // So re initializing the device fixes that
-    fn reinit_device(&mut self) -> Result<(), i32> {
-        unsafe {
-            self.device = std::mem::zeroed();
-            self.device_config.pUserData = Arc::as_ptr(&self.user_data) as *mut c_void;
-            miniaudio::ma_device_init(ptr::null_mut(), &self.device_config, &mut self.device);
-        }
         Ok(())
     }
 
@@ -373,8 +326,7 @@ impl AudioEngine {
 
 
 
-
-
+    
 
 
 
@@ -512,7 +464,6 @@ impl Drop for AudioEngine {
     fn drop(&mut self) {
         let _ = self.pause();
         unsafe {
-            miniaudio::ma_device_uninit(&mut self.device);
             if !self.buffer.lock().unwrap().0.is_null() {
                 sys::av_audio_fifo_free(self.buffer.lock().unwrap().0);
             }
@@ -522,3 +473,85 @@ impl Drop for AudioEngine {
 
 unsafe impl Send for AudioEngine {}
 unsafe impl Sync for AudioEngine {}
+
+fn build_stream(
+        device: &cpal::Device,
+        config: cpal::StreamConfig,
+        buffer: Arc<Mutex<AudioFifo>>,
+        signal_tx: Sender<EngineSignal>,
+    ) -> Result<Stream, i32> {
+        
+        let stream = device.build_output_stream(
+            &config,
+            move |data: &mut [i32], _: &cpal::OutputCallbackInfo| {
+                unsafe {
+                    let buffer_guard = match buffer.try_lock() {
+                        Ok(guard) => guard,
+                        Err(_) => {
+                            // Lock contention - zero fill
+                            data.fill(0);
+                            return;
+                        }
+                    };
+
+                    let fifo = buffer_guard.0;
+                    if fifo.is_null() {
+                        data.fill(0);
+                        return;
+                    }
+
+                    let available = sys::av_audio_fifo_size(fifo);
+                    let frames_to_read = available.min(data.len() as i32 / 2); // 2 channels
+
+                    if frames_to_read > 0 {
+                        let mut data_ptrs = [data.as_mut_ptr() as *mut c_void];
+                        let got = sys::av_audio_fifo_read(
+                            fifo,
+                            data_ptrs.as_mut_ptr(),
+                            frames_to_read,
+                        );
+
+                        if got > 0 {
+                            add_played(got as u64);
+
+                            // Apply volume
+                            let vol = f_get_volume();
+                            if vol != 1.0 {
+                                for sample in &mut data[..((got as usize) * 2)] {
+                                    let s = *sample as f32;
+                                    *sample = (s * vol).clamp(i32::MIN as f32, i32::MAX as f32) as i32;
+                                }
+                            }
+
+                            // Zero fill remaining
+                            if got < frames_to_read {
+                                let start = (got as usize) * 2;
+                                data[start..].fill(0);
+                            }
+                        } else {
+                            data.fill(0);
+                        }
+
+                        // Check for EOF
+                        if get_decoder_eof() && available < 100 {
+                            _ = signal_tx.try_send(EngineSignal::MediaEnd);
+                        }
+
+                        // Check for low buffer
+                        if available < (config.sample_rate as i32 * 5) && !get_decoder_eof() {
+                            _ = signal_tx.try_send(EngineSignal::BufferLow);
+                        }
+                    } else {
+                        data.fill(0);
+                    }
+                }
+            },
+            |err| {
+                eprintln!("Stream error: {}", err);
+            },
+            None,
+        ).map_err(|_| -1)?;
+
+        Ok(stream)
+    }
+
