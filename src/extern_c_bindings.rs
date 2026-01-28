@@ -1,19 +1,17 @@
-//This is mostly llm generated
+//THIS FILE IS MOSTLY LLM GENERATED
 
 use std::ffi::CStr;
 use std::os::raw::c_char;
-use std::sync::{Arc, OnceLock};
-use tokio::sync::Mutex as AsyncMutex;
+use std::sync::{Arc, Mutex, OnceLock};
 use crate::aurex::{Player, PlayerCallback};
 use crate::enums::{ResamplingQuality, EngineSignal, PlayerError};
-use std::sync::Mutex;
 
 // === GLOBAL STATE ===
 static PLAYER: OnceLock<Arc<Player>> = OnceLock::new();
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
-type DartCallback = extern "C" fn(event: i32);
-static DART_CALLBACK: Mutex<Option<DartCallback>> = Mutex::new(None);
+// Store the Dart native port instead of a callback
+static DART_PORT: Mutex<Option<i64>> = Mutex::new(None);
 
 // === CALLBACK ADAPTER ===
 struct FFICallback;
@@ -27,10 +25,18 @@ impl PlayerCallback for FFICallback {
             event_code = -1;
         }
         
-        if let Some(cb) = *DART_CALLBACK.lock().unwrap() {
-            cb(event_code);
+        // Send message to Dart port (safe from any thread)
+        if let Some(port) = *DART_PORT.lock().unwrap() {
+            unsafe {
+                dart_post_integer(port, event_code as i64);
+            }
         }
     }
+}
+
+// Dart FFI function to post messages
+unsafe extern "C" {
+    fn dart_post_integer(port_id: i64, message: i64) -> bool;
 }
 
 // === FFI FUNCTIONS ===
@@ -38,15 +44,15 @@ impl PlayerCallback for FFICallback {
 #[unsafe(no_mangle)]
 pub extern "C" fn player_new(
     resampling_quality: i32,
-    callback: DartCallback,
+    dart_port: i64,  // Changed from callback to port
 ) -> i32 {
     let rt = RUNTIME.get_or_init(|| {
         tokio::runtime::Runtime::new().unwrap()
     });
 
     rt.block_on(async {
-        // Store the callback
-        *DART_CALLBACK.lock().unwrap() = Some(callback);
+        // Store the Dart port
+        *DART_PORT.lock().unwrap() = Some(dart_port);
         
         let quality = match resampling_quality {
             0 => Some(ResamplingQuality::Low),
@@ -67,6 +73,8 @@ pub extern "C" fn player_new(
         }
     })
 }
+
+// Rest of your functions stay the same...
 
 #[unsafe(no_mangle)]
 pub extern "C" fn player_load(file_path: *const c_char) -> i32 {
