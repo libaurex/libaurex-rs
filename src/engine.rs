@@ -71,7 +71,7 @@ impl AudioEngine {
         let channels = config.channels() as i32;
         
         let buffer_ptr =
-            unsafe { sys::av_audio_fifo_alloc(sys::AVSampleFormat::AV_SAMPLE_FMT_S32, 2, 480_000) };
+            unsafe { sys::av_audio_fifo_alloc(sys::AVSampleFormat::AV_SAMPLE_FMT_S32, 2, 100) };
         let buffer = Arc::new(Mutex::new(AudioFifo(buffer_ptr)));
 
         let (signal_tx, signal_rx) = unbounded::<EngineSignal>();
@@ -90,7 +90,7 @@ impl AudioEngine {
         }
 
         let engine = AudioEngine {
-            stream: Some(build_stream(&device, config.into(), buffer.clone(), signal_tx).unwrap()),
+            stream: Some(build_stream(&device, config.into(), buffer.clone(), signal_tx, sample_rate.clone()).unwrap()),
             buffer: buffer,
             channels: channels,
             sample_rate: Arc::new(Mutex::new(sample_rate)),
@@ -479,6 +479,7 @@ fn build_stream(
         config: cpal::StreamConfig,
         buffer: Arc<Mutex<AudioFifo>>,
         signal_tx: Sender<EngineSignal>,
+        device_sample_rate: i32
     ) -> Result<Stream, i32> {
         
         let stream = device.build_output_stream(
@@ -533,7 +534,7 @@ fn build_stream(
                         }
 
                         // Check for EOF
-                        if get_decoder_eof() && available < 100 {
+                        if get_decoder_eof() && got < (device_sample_rate / 100) { //I dont know whats the logic behind this number, i just kept printing `got` until the audio ended
                             _ = signal_tx.try_send(EngineSignal::MediaEnd);
                         }
 
