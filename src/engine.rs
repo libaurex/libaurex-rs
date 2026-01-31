@@ -214,7 +214,7 @@ impl AudioEngine {
     //Pauses playback
     pub fn pause(&mut self) -> Result<(), i32> {
         if *self.state.lock().unwrap() != PlayerState::PAUSED {
-            self.stream.as_ref().unwrap().play().map_err(|_| -1)?;
+            self.stream.as_ref().unwrap().pause().map_err(|_| -1)?;
             *self.state.lock().unwrap() = PlayerState::PAUSED;
         }
 
