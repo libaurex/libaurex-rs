@@ -102,7 +102,7 @@ async fn main() {
         // thread::sleep(Duration::from_secs(2));
         _ = player.play().await;
         
-        _ = player.seek(40.0).await;
+        // _ = player.seek(40.0).await;
         // thread::sleep(Duration::from_millis(100));
     }
 
