@@ -206,6 +206,7 @@ impl AudioEngine {
 
         if *self.state.lock().unwrap() != PlayerState::PLAYING {
             self.stream.as_ref().unwrap().play().map_err(|_| -1)?;
+            *self.state.lock().unwrap() = PlayerState::PLAYING;
         }
 
         Ok(())
