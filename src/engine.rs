@@ -4,7 +4,7 @@ use crate::{
     aurex::{Player, PlayerCallback},
     decoding_loop::decode,
     enums::{CMD, EngineSignal, PlayerState, ResamplingQuality},
-    singletons::{self, add_played, get_decoder_eof, get_played, get_volume as f_get_volume, set_decoder_eof, set_played, set_total, set_volume as f_set_volume},
+    singletons::{self, add_played, get_decoder_eof, get_played, get_volume as f_get_volume, reset_played, set_decoder_eof, set_played, set_total, set_volume as f_set_volume},
     structs::Decoder,
 };
 
@@ -174,6 +174,8 @@ impl AudioEngine {
         if *self.state.lock().unwrap() == PlayerState::PLAYING {
             self.pause()?;
         }
+
+        reset_played();
 
         // Clear the FIFO buffer
         unsafe {
