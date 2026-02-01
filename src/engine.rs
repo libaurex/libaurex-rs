@@ -275,7 +275,7 @@ impl AudioEngine {
             }
         }
         _ = self.pause();
-
+        let is_paused = { *self.state.lock().unwrap() == PlayerState::PAUSED };
         
         {
             let decoder = self.decoder.lock().unwrap();
@@ -309,7 +309,10 @@ impl AudioEngine {
         let tx = self.tx.as_ref().unwrap().clone();
         _ = tx.send(CMD::Resume);
         set_played((time_s * (*self.sample_rate.lock().unwrap() as f64)) as u64);
-        _ = self.play();
+        
+        if !is_paused {
+            _ = self.play();
+        }
 
         Ok(())
     }
