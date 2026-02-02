@@ -276,8 +276,14 @@ impl AudioEngine {
                 break;
             }
         }
+
+        let is_paused = { 
+            dbg!(self.state.lock().unwrap());
+            *self.state.lock().unwrap() == PlayerState::PAUSED 
+        };
+
+        dbg!(is_paused);
         _ = self.pause();
-        let is_paused = { *self.state.lock().unwrap() == PlayerState::PAUSED };
         
         {
             let decoder = self.decoder.lock().unwrap();
