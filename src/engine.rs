@@ -199,7 +199,7 @@ impl AudioEngine {
         let sample_rate = {self.sample_rate.lock().unwrap().clone()};
         let minimum_samples = sample_rate * 5;
 
-        while size <= minimum_samples {
+        while size <= minimum_samples && !get_decoder_eof(){
             let buffer = self.buffer.lock().unwrap().0;
             size = unsafe {sys::av_audio_fifo_size(buffer)};
             thread::sleep(Duration::from_millis(10));
@@ -249,9 +249,11 @@ impl AudioEngine {
                             m_engine.callback.on_player_event(EngineSignal::MediaEnd, player_arc);
                         },
                         EngineSignal::BufferLow => {
-                            let m_engine = engine.lock().await;
-                            if let Some(tx) = &m_engine.tx {
-                                _ = tx.send(CMD::FillBuffer);
+                            if !get_decoder_eof() {  
+                                let m_engine = engine.lock().await;
+                                if let Some(tx) = &m_engine.tx {
+                                    _ = tx.send(CMD::FillBuffer);
+                                }
                             }
                         }
                     }
@@ -315,6 +317,7 @@ impl AudioEngine {
         }
 
         let tx = self.tx.as_ref().unwrap().clone();
+        set_decoder_eof(false);
         _ = tx.send(CMD::Resume);
         set_played((time_s * (*self.sample_rate.lock().unwrap() as f64)) as u64);
         
@@ -453,6 +456,7 @@ impl AudioEngine {
                     _ = decode(decoder_handle.clone(), sample_rate_handle.clone(), buffer_handle.clone(), target_buffer_size);
                 }
                 else if let CMD::FillBuffer = cmd {
+
                     let current_size = unsafe { 
                         sys::av_audio_fifo_size(buffer_handle.lock().unwrap().0) 
                     };
@@ -499,7 +503,7 @@ fn build_stream(
             &config,
             move |data: &mut [i32], _: &cpal::OutputCallbackInfo| {
                 unsafe {
-                    let buffer_guard = match buffer.try_lock() {
+                    let buffer_guard = match buffer.lock() {
                         Ok(guard) => guard,
                         Err(_) => {
                             // Lock contention - zero fill
