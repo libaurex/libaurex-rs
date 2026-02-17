@@ -47,7 +47,7 @@ pub extern "C" fn player_new(resampling_quality: i32) -> i32 {
 
         let ffi_callback = Box::new(FFICallback);
 
-        match Player::new(quality, ffi_callback).await {
+        match Player::create(quality, ffi_callback).await {
             Ok(player) => {
                 PLAYER.set(player).ok();
                 0
