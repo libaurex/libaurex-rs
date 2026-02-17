@@ -37,7 +37,6 @@ unsafe impl Send for AudioFifo {}
 
 pub struct AudioEngine {
     stream: Option<Stream>,
-    callback_ctx: Option<Box<dyn Any>>,
     buffer: Arc<Mutex<AudioFifo>>,
     channels: i32,
     sample_rate: Arc<Mutex<i32>>,
@@ -48,15 +47,19 @@ pub struct AudioEngine {
     total_samples: Arc<Mutex<Option<u64>>>, // Total samples in current track
     resampling_quality: ResamplingQuality,
     signal_receiver: Receiver<EngineSignal>,
-    callback: Box<dyn PlayerCallback>,
+    callback: Box<dyn FnMut(EngineSignal, Arc<Player>) -> ()>,
     decoder: Arc<Mutex<Decoder>>,
 }
 
 impl AudioEngine {
     pub fn new(
+        
         resampling_quality: Option<ResamplingQuality>,
-        callback: Box<dyn PlayerCallback>,
-    ) -> Result<Arc<async_Mutex<Self>>, i32> {
+        callback: Box<dyn FnMut(EngineSignal, Arc<Player>) -> ()>,
+    
+    ) -> Result<Arc<async_Mutex<Self>>, i32> 
+    
+    {
         
         let m_resampling_quality = resampling_quality.unwrap_or(ResamplingQuality::High);
         singletons::set_decoder_busy(false);
@@ -103,22 +106,13 @@ impl AudioEngine {
             signal_receiver: signal_rx,
             callback: callback,
             decoder: decoder,
-            callback_ctx: None
         };
 
         Ok(Arc::new(async_Mutex::new(engine)))
     }
 
-    pub fn get_callback_context<T: Any>(&mut self) -> Option<&mut T> {
-        self.callback_ctx.as_mut()?.downcast_mut::<T>()
-    }
-
     pub fn get_duration(&self) -> f64 {
         *self.duration.lock().unwrap()
-    }
-
-    pub fn set_callback_context<T: Any>(&mut self, data: T) {
-        self.callback_ctx = Some(Box::new(data));
     }
 
     ///Loads files. Automatically stops previous playback if any. Requires an arc clone of the player object because it's later passed as context to media end callback
@@ -246,7 +240,7 @@ impl AudioEngine {
                             _ = m_engine.pause();
                             _ = m_engine.clear();
                             println!("Player empty and ready. Executing callback");
-                            m_engine.callback.on_player_event(EngineSignal::MediaEnd, player_arc);
+                            (m_engine.callback)(EngineSignal::MediaEnd, player_arc);
                         },
                         EngineSignal::BufferLow => {
                             if !get_decoder_eof() {  

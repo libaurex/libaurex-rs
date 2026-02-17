@@ -7,7 +7,7 @@ use crate::{
 };
 
 use std::{
-    any::Any, sync::Arc
+    sync::Arc
 };
 
 use tokio::sync::Mutex as async_Mutex;
@@ -28,14 +28,16 @@ pub trait PlayerCallback: Send + Sync {
 impl Player {
 
     #[uniffi::constructor]
-    pub async fn new (
+    pub async fn create (
 
         resampling_quality: Option<ResamplingQuality>,
         callback: Box<dyn PlayerCallback>
 
     ) -> Result<Arc<Self>, PlayerError> {
 
-        let engine = AudioEngine::new(resampling_quality, callback);
+        let engine = AudioEngine::new(resampling_quality, Box::new(move |signal, arc| {
+            callback.on_player_event(signal, arc);
+        }));
         if engine.is_err() {
             return Err(PlayerError::Code(engine.err().unwrap_or(-1)));
         }
@@ -107,29 +109,23 @@ impl Player {
 
 ///Rust only impl block
 impl Player {
-    pub async fn set_callback_context<T: Any>(&self, data: T) {
-        let mut engine = self.engine.lock().await;
-        engine.set_callback_context(data);
+
+    //Rust only constructor with closures
+    pub fn new(
+
+        resampling_quality: Option<ResamplingQuality>,
+        callback: Box<dyn FnMut(EngineSignal, Arc<Player>) -> ()>
+
+    ) -> Result<Arc<Self>, PlayerError> {
+
+        let engine = AudioEngine::new(resampling_quality, callback);
+        if engine.is_err() {
+            return Err(PlayerError::Code(engine.err().unwrap_or(-1)));
+        }
+
+        Ok(
+            Arc::new(Player { engine: engine.unwrap() })
+        )
     }
 
-    ///Function to execute callback logic if previously set
-    /// T = Type of the context
-    /// F = Function
-    /// R = The return type
-    ///Example:
-    /// ```
-    /// let file = player.with_callback_ctx_mut::<VecDeque<PathBuf>, _, PathBuf>(|files| {
-    ///     files.pop_front().expect("Failed to get next path")
-    /// }).await;
-    /// ```
-    pub async fn with_callback_ctx_mut<T, F, R>(&self, f: F) -> Option<R>
-    where
-        T: Any,
-        F: FnOnce(&mut T) -> R, 
-    {
-        let mut engine = self.engine.lock().await;
-        let context = engine.get_callback_context::<T>()?;
-        let result = f(context);
-        Some(result)
-    }
 }

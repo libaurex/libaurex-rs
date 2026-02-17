@@ -1,43 +1,15 @@
 //i know it's janky. just for testing 
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex};
 use std::{env, thread};
 use std::time::Duration;
 use libaurex::aurex::Player;
-use libaurex::aurex::PlayerCallback;
 use libaurex::enums::{ResamplingQuality, EngineSignal};
-use std::process;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::io;
 
-struct Callback;
-impl PlayerCallback for Callback {
-    fn on_player_event(&self, _event:EngineSignal, player: Arc<Player>) {
-        println!("Media Ended.");
-
-        let player = player.clone();
-        tokio::spawn(async move {
-            let file = player.with_callback_ctx_mut::<VecDeque<PathBuf>, _, PathBuf>(|files| {
-                files.pop_front().expect("Failed to get next path")
-            }).await;
-
-            match file {
-                Some(m_file) => {
-                    let file_str = m_file.to_str().expect("Failed to get next path");
-                    player.clone().load(file_str).await;
-                    player.play().await;
-                },
-                None => {
-                    process::exit(0)
-                }
-            }
-        });
-
-        
-    }
-}
 
 fn get_all_paths(dir: &str, recursive: bool) -> io::Result<VecDeque<PathBuf>> {
     let audio_extensions = ["mp3", "wav", "flac", "ogg", "m4a", "aac", "wma", "opus"];
@@ -73,39 +45,60 @@ async fn main() {
         println!("No files provided.");
         return;
     }
- 
-    let player = Player::new(Some(ResamplingQuality::VeryHigh), 
-        Box::new(Callback)
-    ).await.unwrap();
+
+    let mut all_files: Arc<Mutex<Option<VecDeque<PathBuf>>>> = Arc::new(Mutex::new(None));
 
     if &args[1] == "--dir" {
-        if (args.len() < 3) {
+        if args.len() < 3 {
             println!("No directory provided");
             return;
         }
 
         match get_all_paths(&args[2], args.contains(&String::from("-R"))) {
             Ok(mut files) => {
-                player.clone().load(files.pop_front().unwrap().to_str().unwrap()).await;
-                player.play().await;
-                player.set_callback_context(files).await;
+                all_files = Arc::new(Mutex::new(Some(files)));
             },
             Err(e) => {
                 eprintln!("Error: {}", e)
             }
         }
-    } else {
-        player.set_callback_context(Vec::<PathBuf>::new()).await;
-    
-        _ = player.clone().load(&args[1].clone()).await;
-        // player.set_volume(0.01).await;
-        // thread::sleep(Duration::from_secs(2));
-        _ = player.play().await;
-        
-        _ = player.seek(119.0).await;
-        // thread::sleep(Duration::from_millis(100));
     }
 
+    let files = all_files.clone();
+
+    let player = Player::new(
+        Some(ResamplingQuality::VeryHigh),
+        Box::new(move |_event, player_arc| {
+            println!("Media Ended.");
+            let player = player_arc.clone();
+            let file = files.lock().unwrap().as_mut().and_then(|list| list.pop_front());
+
+            tokio::spawn(async move {
+                match file {
+                    Some(file_path) => {
+                        if let Some(path_str) = file_path.to_str() {
+                            player.clone().load(path_str).await;
+                            player.play().await;
+                        }
+                    },
+                    None => {
+                        std::process::exit(0);
+                    }
+                }
+            });
+        })
+    ).unwrap();
+
+    
+    if &args[1] == "--dir" {
+        let file = all_files.lock().unwrap().as_mut().and_then(|list| list.pop_front());
+
+        player.clone().load(file.unwrap().to_str().unwrap()).await;
+        player.play().await;
+    } else {
+        player.clone().load(&args[1]).await;
+        player.play().await;
+    }
 
     loop {
         println!("Progress: {}/{}", player.get_progress().await.unwrap(), player.get_duration().await);
