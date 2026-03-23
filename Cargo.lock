@@ -207,10 +207,11 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.31"
+version = "1.2.57"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3a42d84bb6b69d3a8b3eaacf0d88f179e1929695e1ad012b6cf64d9caaa5fd2"
+checksum = "7a0dd1ca384932ff3641c8718a02769f1698e7563dc6974ffd03346116310423"
 dependencies = [
+ "find-msvc-tools",
  "shlex",
 ]
 
@@ -284,6 +285,15 @@ name = "clap_lex"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
+
+[[package]]
+name = "cmake"
+version = "0.1.57"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75443c44cd6b379beb8c5b45d85d0773baf31cce901fe7bb252f4eff3008ef7d"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "combine"
@@ -422,6 +432,12 @@ dependencies = [
  "pkg-config",
  "vcpkg",
 ]
+
+[[package]]
+name = "find-msvc-tools"
+version = "0.1.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "fs-err"
@@ -571,7 +587,7 @@ dependencies = [
  "cpal",
  "crossbeam-channel",
  "ffmpeg-next",
- "soxr",
+ "soxr-ax",
  "tokio",
  "uniffi",
  "vcpkg",
@@ -594,12 +610,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "libsoxr-sys"
+name = "libsoxr-ax-sys"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cffdc8b3b64759d2e95e3236fa6bf85fef226bf57023fa9273ec60edea8fbce"
+checksum = "cbae0c0b8f1ba84848106156471945555645d7a60c874d640c23368656fa811f"
 dependencies = [
- "pkg-config",
+ "cmake",
 ]
 
 [[package]]
@@ -1066,14 +1082,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7c388c1b5e93756d0c740965c41e8822f866621d41acbdf6336a6a168f8840c"
 
 [[package]]
-name = "soxr"
+name = "soxr-ax"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3ca6bc65602daad89c3217255ff89c4abbe489b9dd3e56c66aa16d1addac979"
+checksum = "78533492baf9e3765eb7a1ec80f3558094917d43ad81acab3a16dadd0aee7250"
 dependencies = [
  "bitflags 2.9.1",
  "bytemuck",
- "libsoxr-sys",
+ "libsoxr-ax-sys",
 ]
 
 [[package]]

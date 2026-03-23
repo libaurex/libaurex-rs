@@ -9,7 +9,7 @@ use crate::{
 };
 
 use ffmpeg_next::{self};
-use soxr::{
+use soxr_ax::{
     Soxr,
     format::{self},
     params::{Interpolation, RuntimeSpec},
@@ -134,7 +134,6 @@ impl AudioEngine {
             engine.initialised = true;
         }
 
-        println!("Loading {}", &file);
         let resampling_quality = engine.resampling_quality;
         _ = engine
             .tx
@@ -178,7 +177,6 @@ impl AudioEngine {
 
         *self.state.lock().unwrap() = PlayerState::EMPTY;
 
-        println!("Cleared audio buffer");
         Ok(())
     }
 
@@ -239,7 +237,6 @@ impl AudioEngine {
                             let mut m_engine = engine.lock().await;
                             _ = m_engine.pause();
                             _ = m_engine.clear();
-                            println!("Player empty and ready. Executing callback");
                             (m_engine.callback)(EngineSignal::MediaEnd, player_arc);
                         },
                         EngineSignal::BufferLow => {
@@ -274,11 +271,9 @@ impl AudioEngine {
         }
 
         let is_paused = { 
-            dbg!(self.state.lock().unwrap());
             *self.state.lock().unwrap() == PlayerState::PAUSED 
         };
 
-        dbg!(is_paused);
         _ = self.pause();
         
         {
@@ -436,7 +431,6 @@ impl AudioEngine {
 
                     let mut state = state_handle.lock().unwrap();
                     *state = PlayerState::INITIALISED;
-                    println!("Initialised decoders");
                     drop(m_decoder);
 
                     _ = decode(

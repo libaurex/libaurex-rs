@@ -1,6 +1,5 @@
 use std::fmt;
-use soxr::{params::{QualitySpec, QualityRecipe, QualityFlags}};
-use tokio::sync::oneshot;
+use soxr_ax::{params::{QualitySpec, QualityRecipe, QualityFlags}};
 
 #[derive(PartialEq, Debug)]
 pub enum PlayerState {
@@ -89,7 +88,7 @@ impl ResamplingQuality {
 
         Ok( QualitySpec::configure(
                 recipe, 
-                soxr::params::Rolloff::Small,
+                soxr_ax::params::Rolloff::Small,
                 QualityFlags::HighPrecisionClock | QualityFlags::DoublePrecision
         ))
     }

@@ -2,10 +2,9 @@ use ffmpeg_next::format::context::input::Input;
 use ffmpeg_next::codec::decoder::audio::Audio;
 use ffmpeg_next::software::resampling::context::Context as Resampler;
 
-use soxr::format::Interleaved;
-use soxr::Soxr;
+use soxr_ax::format::Interleaved;
+use soxr_ax::Soxr;
 
-use std::any::Any;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
