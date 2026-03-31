@@ -33,10 +33,18 @@ pub fn decode(
             continue;
         }
 
-        m_decoder
-            .decoder
-            .send_packet(&packet)
-            .expect("Failed to send packet to decoder.");
+        match m_decoder.decoder.send_packet(&packet) {
+            Ok(_) => {}
+            Err(ffmpeg_next::Error::InvalidData) => {
+                let _ = m_decoder.decoder.flush();
+                continue;
+            }
+            Err(e) => {
+                eprintln!("Decoder error on packet, skipping: {}", e);
+                continue;
+            }
+        }
+
         let mut frame = AudioFrame::empty();
 
         while m_decoder.decoder.receive_frame(&mut frame).is_ok() {
