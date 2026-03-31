@@ -1,40 +1,58 @@
 use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 fn main() {
     if env::var("CARGO_CFG_TARGET_OS").unwrap() == "windows" {
         let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
         let ffmpeg_dir = PathBuf::from(&manifest_dir).join("vendor").join("ffmpeg");
-        
         let lib_dir = ffmpeg_dir.join("lib");
-        println!("cargo:rustc-link-search=native={}", lib_dir.display());
+
         println!("cargo:rustc-env=FFMPEG_DIR={}", ffmpeg_dir.display());
+        println!("cargo:rustc-env=FFMPEG_STATIC=1");
+        println!("cargo:rustc-env=FFMPEG_NO_PKG_CONFIG=1");
+        println!("cargo:rustc-link-search=native={}", lib_dir.display());
 
-        let bin_dir = ffmpeg_dir.join("bin");
-        let out_dir = env::var("OUT_DIR").unwrap();
-        
-        let target_dir = find_target_dir(Path::new(&out_dir));
+        let ffmpeg_libs = [
+            "avcodec",
+            "avdevice",
+            "avfilter",
+            "avformat",
+            "avutil",
+            "swresample",
+            "swscale",
+        ];
 
-        if let Ok(entries) = fs::read_dir(bin_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().and_then(|s| s.to_str()) == Some("dll") {
-                    let dest = target_dir.join(path.file_name().unwrap());
-                    fs::copy(&path, &dest).ok(); 
-                }
-            }
+        for lib in &ffmpeg_libs {
+            println!("cargo:rustc-link-lib=static={}", lib);
         }
-    }
-}
 
-fn find_target_dir(path: &Path) -> PathBuf {
-    let mut current = path;
-    while let Some(parent) = current.parent() {
-        if current.file_name().and_then(|s| s.to_str()) == Some("build") {
-            return parent.to_path_buf();
-        }
-        current = parent;
+        // Core Windows deps
+        println!("cargo:rustc-link-lib=bcrypt");
+        println!("cargo:rustc-link-lib=ws2_32");
+        println!("cargo:rustc-link-lib=secur32");
+        println!("cargo:rustc-link-lib=user32");
+        println!("cargo:rustc-link-lib=ole32");
+
+        // schannel (--enable-schannel)
+        println!("cargo:rustc-link-lib=crypt32");
+
+        // d3d11va, d3d12va, dxva2
+        println!("cargo:rustc-link-lib=d3d11");
+        println!("cargo:rustc-link-lib=d3d12");
+        println!("cargo:rustc-link-lib=dxva2");
+        println!("cargo:rustc-link-lib=d3dcompiler");
+        println!("cargo:rustc-link-lib=dxguid");
+
+        // Media Foundation (--enable-mediafoundation)
+        println!("cargo:rustc-link-lib=mfplat");
+        println!("cargo:rustc-link-lib=mfuuid");
+        println!("cargo:rustc-link-lib=mf");
+        println!("cargo:rustc-link-lib=mfreadwrite");
+
+        // avdevice needs these
+        println!("cargo:rustc-link-lib=strmiids");
+        println!("cargo:rustc-link-lib=uuid");
+        println!("cargo:rustc-link-lib=oleaut32");
+        println!("cargo:rustc-link-lib=gdi32");
     }
-    path.to_path_buf()
 }

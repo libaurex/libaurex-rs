@@ -1,0 +1,4 @@
+[env]
+FFMPEG_DIR = { value = "vendor\\ffmpeg", relative = true }
+FFMPEG_STATIC = "1"
+FFMPEG_NO_PKG_CONFIG = "1"
