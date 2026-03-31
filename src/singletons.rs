@@ -30,6 +30,7 @@ pub fn set_total(samples: u64) {
     TOTAL_SAMPLES.store(samples, Ordering::Relaxed);
 }
 
+#[allow(unused)]
 pub fn get_total() -> u64 {
     TOTAL_SAMPLES.load(Ordering::Relaxed)
 }
@@ -45,6 +46,8 @@ pub fn set_decoder_eof(flag: bool) {
 
 
 pub static DECODER_BUSY: LazyLock<AtomicBool> = LazyLock::new(|| AtomicBool::new(false));
+
+#[allow(unused)]
 pub fn get_decoder_busy() -> bool {
     DECODER_BUSY.load(Ordering::Relaxed)
 }

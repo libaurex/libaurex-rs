@@ -1,5 +1,4 @@
 use crate::{engine::AudioFifo, singletons::set_decoder_eof, structs::Decoder};
-use ffmpeg_next::format::output;
 #[allow(unused_imports)]
 use ffmpeg_next::{self as av, ffi::AVAudioFifo, frame::Audio as AudioFrame, media, sys};
 
@@ -16,7 +15,7 @@ pub fn decode(
     let mut format_ctx = m_decoder.format_ctx.take().unwrap();
     drop(m_decoder);
 
-    let mut frames_written = 0;
+    let mut _frames_written = 0;
 
     //Decoding loop
     for (stream, packet) in format_ctx.packets() {
@@ -92,8 +91,8 @@ pub fn decode(
                     // Todo
                 }
 
-                frames_written += written;
-                let current_size = unsafe { sys::av_audio_fifo_size(buffer_handle.lock().unwrap().0) };
+                _frames_written += written;
+                let current_size = sys::av_audio_fifo_size(buffer_handle.lock().unwrap().0);
                 if current_size >= target_buffer_size {
                     m_decoder.format_ctx = Some(format_ctx);
                     return Ok(false); // Not EOF, just buffer full

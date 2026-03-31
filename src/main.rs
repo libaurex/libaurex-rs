@@ -5,9 +5,9 @@ use std::sync::{Arc, Mutex};
 use std::{env, thread};
 use std::time::Duration;
 use libaurex::aurex::Player;
-use libaurex::enums::{ResamplingQuality, EngineSignal};
+use libaurex::enums::{ResamplingQuality};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use std::io;
 
 
@@ -55,7 +55,7 @@ async fn main() {
         }
 
         match get_all_paths(&args[2], args.contains(&String::from("-R"))) {
-            Ok(mut files) => {
+            Ok(files) => {
                 all_files = Arc::new(Mutex::new(Some(files)));
             },
             Err(e) => {
@@ -77,8 +77,8 @@ async fn main() {
                 match file {
                     Some(file_path) => {
                         if let Some(path_str) = file_path.to_str() {
-                            player.clone().load(path_str).await;
-                            player.play().await;
+                            _ = player.clone().load(path_str).await;
+                            _ = player.play().await;
                         }
                     },
                     None => {
@@ -93,11 +93,11 @@ async fn main() {
     if &args[1] == "--dir" {
         let file = all_files.lock().unwrap().as_mut().and_then(|list| list.pop_front());
 
-        player.clone().load(file.unwrap().to_str().unwrap()).await;
-        player.play().await;
+        _ = player.clone().load(file.unwrap().to_str().unwrap()).await;
+        _ = player.play().await;
     } else {
-        player.clone().load(&args[1]).await;
-        player.play().await;
+        _ = player.clone().load(&args[1]).await;
+        _ = player.play().await;
     }
 
     loop {

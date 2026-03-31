@@ -67,6 +67,8 @@ pub enum ResamplingQuality {
 
 impl ResamplingQuality {
     pub fn get_quality_spec(&self) -> Result<QualitySpec, PlayerError> {
+
+        #[allow(unused)]
         let mut recipe = QualityRecipe::default();
         match self {
             Self::Quick => {

@@ -1,7 +1,7 @@
 //engine.rs
 
 use crate::{
-    aurex::{Player, PlayerCallback},
+    aurex::{Player},
     decoding_loop::decode,
     enums::{CMD, EngineSignal, PlayerState, ResamplingQuality},
     singletons::{self, add_played, get_decoder_eof, get_played, get_volume as f_get_volume, reset_played, set_decoder_eof, set_played, set_total, set_volume as f_set_volume},
@@ -19,7 +19,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::Stream;
 
 use std::{
-    any::Any, ffi::c_void, i64, mem::zeroed, sync::{
+        ffi::c_void, i64, mem::zeroed, sync::{
         Arc, Mutex, Weak,
         atomic::{AtomicBool, Ordering},
     }, thread::{self}, time::Duration
@@ -38,6 +38,8 @@ unsafe impl Send for AudioFifo {}
 pub struct AudioEngine {
     stream: Option<Stream>,
     buffer: Arc<Mutex<AudioFifo>>,
+
+    #[allow(unused)]
     channels: i32,
     sample_rate: Arc<Mutex<i32>>,
     state: Arc<Mutex<PlayerState>>,
