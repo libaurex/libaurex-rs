@@ -2,15 +2,17 @@ use crate::{engine::AudioFifo, singletons::set_decoder_eof, structs::Decoder};
 #[allow(unused_imports)]
 use ffmpeg_next::{self as av, ffi::AVAudioFifo, frame::Audio as AudioFrame, media, sys};
 
-use std::{ffi::c_void, sync::{Arc, Mutex, atomic::Ordering}};
+use std::{
+    ffi::c_void,
+    sync::{Arc, Mutex, atomic::Ordering},
+};
 
 pub fn decode(
-        decoder_handle: Arc<Mutex<Decoder>>,
-        sample_rate_handle: Arc<Mutex<i32>>,
-        buffer_handle: Arc<Mutex<AudioFifo>>,
-        target_buffer_size: i32
-    ) -> Result<bool, i32> {
-
+    decoder_handle: Arc<Mutex<Decoder>>,
+    sample_rate_handle: Arc<Mutex<i32>>,
+    buffer_handle: Arc<Mutex<AudioFifo>>,
+    target_buffer_size: i32,
+) -> Result<bool, i32> {
     let mut m_decoder = decoder_handle.lock().unwrap();
     let mut format_ctx = m_decoder.format_ctx.take().unwrap();
     drop(m_decoder);
@@ -47,7 +49,7 @@ pub fn decode(
         let mut frame = AudioFrame::empty();
 
         while m_decoder.decoder.receive_frame(&mut frame).is_ok() {
-            let mut resampled_frame = AudioFrame::empty();   
+            let mut resampled_frame = AudioFrame::empty();
             _ = m_decoder.resampler.run(&frame, &mut resampled_frame);
 
             //Convert ffmpeg's raw bytes into soxr's required array types

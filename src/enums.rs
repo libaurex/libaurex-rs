@@ -1,5 +1,5 @@
+use soxr_ax::params::{QualityFlags, QualityRecipe, QualitySpec};
 use std::fmt;
-use soxr_ax::{params::{QualitySpec, QualityRecipe, QualityFlags}};
 
 #[derive(PartialEq, Debug)]
 pub enum PlayerState {
@@ -8,7 +8,7 @@ pub enum PlayerState {
     PLAYING,
     PAUSED,
     EMPTY,
-    INITIALISED
+    INITIALISED,
 }
 
 impl fmt::Display for PlayerState {
@@ -25,24 +25,22 @@ impl fmt::Display for PlayerState {
     }
 }
 
-#[derive(PartialEq)]
-#[derive(uniffi::Enum)]
+#[derive(PartialEq, uniffi::Enum)]
 pub enum EngineSignal {
     MediaEnd,
-    BufferLow
+    BufferLow,
 }
 #[derive(PartialEq)]
 pub enum CMD {
     Start(String, ResamplingQuality),
     Resume,
-    FillBuffer
+    FillBuffer,
 }
 
 #[derive(uniffi::Error, Debug)]
 pub enum PlayerError {
     Code(i32),
 }
-
 
 impl fmt::Display for PlayerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -54,44 +52,41 @@ impl fmt::Display for PlayerError {
 
 impl std::error::Error for PlayerError {}
 
-
-#[derive(Clone, Copy,PartialEq)]
-#[derive(uniffi::Enum)]
+#[derive(Clone, Copy, PartialEq, uniffi::Enum)]
 pub enum ResamplingQuality {
     Quick = 0,
     Low,
     Medium,
     High,
-    VeryHigh
+    VeryHigh,
 }
 
 impl ResamplingQuality {
     pub fn get_quality_spec(&self) -> Result<QualitySpec, PlayerError> {
-
         #[allow(unused)]
         let mut recipe = QualityRecipe::default();
         match self {
             Self::Quick => {
                 recipe = QualityRecipe::Quick;
-            },
+            }
             Self::Low => {
                 recipe = QualityRecipe::Low;
-            },
+            }
             Self::Medium => {
                 recipe = QualityRecipe::Medium;
-            },
+            }
             Self::High => {
                 recipe = QualityRecipe::high();
-            },
+            }
             Self::VeryHigh => {
                 recipe = QualityRecipe::very_high();
             }
         }
 
-        Ok( QualitySpec::configure(
-                recipe, 
-                soxr_ax::params::Rolloff::Small,
-                QualityFlags::HighPrecisionClock | QualityFlags::DoublePrecision
+        Ok(QualitySpec::configure(
+            recipe,
+            soxr_ax::params::Rolloff::Small,
+            QualityFlags::HighPrecisionClock | QualityFlags::DoublePrecision,
         ))
     }
 }

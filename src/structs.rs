@@ -1,9 +1,9 @@
-use ffmpeg_next::format::context::input::Input;
 use ffmpeg_next::codec::decoder::audio::Audio;
+use ffmpeg_next::format::context::input::Input;
 use ffmpeg_next::software::resampling::context::Context as Resampler;
 
-use soxr_ax::format::Interleaved;
 use soxr_ax::Soxr;
+use soxr_ax::format::Interleaved;
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -14,7 +14,7 @@ pub struct Decoder {
     pub resampler: Resampler,
     pub soxr_resampler: Soxr<Interleaved<i32, 2>>,
     pub audio_stream_index: usize,
-    pub main_decoder_cancel_flag: Arc<AtomicBool>
+    pub main_decoder_cancel_flag: Arc<AtomicBool>,
 }
 
 unsafe impl Send for Decoder {}

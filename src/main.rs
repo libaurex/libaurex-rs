@@ -1,28 +1,27 @@
-//i know it's janky. just for testing 
+//i know it's janky. just for testing
 
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
-use std::{env, thread};
-use std::time::Duration;
 use libaurex::aurex::Player;
-use libaurex::enums::{ResamplingQuality};
+use libaurex::enums::ResamplingQuality;
+use std::collections::VecDeque;
 use std::fs;
-use std::path::{PathBuf};
 use std::io;
-
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use std::{env, thread};
 
 fn get_all_paths(dir: &str, recursive: bool) -> io::Result<VecDeque<PathBuf>> {
     let audio_extensions = ["mp3", "wav", "flac", "ogg", "m4a", "aac", "wma", "opus"];
-    
+
     let mut paths = VecDeque::new();
     let mut dirs_to_process = VecDeque::new();
     dirs_to_process.push_back(PathBuf::from(dir));
-    
+
     while let Some(current_dir) = dirs_to_process.pop_front() {
         for entry in fs::read_dir(current_dir)? {
             let entry = entry?;
             let path = entry.path().canonicalize()?;
-            
+
             if path.is_dir() && recursive {
                 dirs_to_process.push_back(path);
             } else if path.is_file() {
@@ -34,7 +33,7 @@ fn get_all_paths(dir: &str, recursive: bool) -> io::Result<VecDeque<PathBuf>> {
             }
         }
     }
-    
+
     Ok(paths)
 }
 
@@ -57,7 +56,7 @@ async fn main() {
         match get_all_paths(&args[2], args.contains(&String::from("-R"))) {
             Ok(files) => {
                 all_files = Arc::new(Mutex::new(Some(files)));
-            },
+            }
             Err(e) => {
                 eprintln!("Error: {}", e)
             }
@@ -71,7 +70,11 @@ async fn main() {
         Box::new(move |_event, player_arc| {
             println!("Media Ended.");
             let player = player_arc.clone();
-            let file = files.lock().unwrap().as_mut().and_then(|list| list.pop_front());
+            let file = files
+                .lock()
+                .unwrap()
+                .as_mut()
+                .and_then(|list| list.pop_front());
 
             tokio::spawn(async move {
                 match file {
@@ -80,18 +83,22 @@ async fn main() {
                             _ = player.clone().load(path_str).await;
                             _ = player.play().await;
                         }
-                    },
+                    }
                     None => {
                         std::process::exit(0);
                     }
                 }
             });
-        })
-    ).unwrap();
+        }),
+    )
+    .unwrap();
 
-    
     if &args[1] == "--dir" {
-        let file = all_files.lock().unwrap().as_mut().and_then(|list| list.pop_front());
+        let file = all_files
+            .lock()
+            .unwrap()
+            .as_mut()
+            .and_then(|list| list.pop_front());
 
         _ = player.clone().load(file.unwrap().to_str().unwrap()).await;
         _ = player.play().await;
@@ -101,7 +108,11 @@ async fn main() {
     }
 
     loop {
-        println!("Progress: {}/{}", player.get_progress().await.unwrap(), player.get_duration().await);
+        println!(
+            "Progress: {}/{}",
+            player.get_progress().await.unwrap(),
+            player.get_duration().await
+        );
         thread::sleep(Duration::from_secs(1));
     }
 }

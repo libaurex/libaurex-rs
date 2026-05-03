@@ -1,10 +1,13 @@
 //engine.rs
 
 use crate::{
-    aurex::{Player},
+    aurex::Player,
     decoding_loop::decode,
     enums::{CMD, EngineSignal, PlayerState, ResamplingQuality},
-    singletons::{self, add_played, get_decoder_eof, get_played, get_volume as f_get_volume, reset_played, set_decoder_eof, set_played, set_total, set_volume as f_set_volume},
+    singletons::{
+        self, add_played, get_decoder_eof, get_played, get_volume as f_get_volume, reset_played,
+        set_decoder_eof, set_played, set_total, set_volume as f_set_volume,
+    },
     structs::Decoder,
 };
 
@@ -15,19 +18,24 @@ use soxr_ax::{
     params::{Interpolation, RuntimeSpec},
 };
 
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::Stream;
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
 use std::{
-        ffi::c_void, i64, mem::zeroed, sync::{
+    ffi::c_void,
+    i64,
+    mem::zeroed,
+    sync::{
         Arc, Mutex, Weak,
         atomic::{AtomicBool, Ordering},
-    }, thread::{self}, time::Duration
+    },
+    thread::{self},
+    time::Duration,
 };
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use tokio::sync::{Mutex as async_Mutex};
 use tokio::runtime::Handle;
+use tokio::sync::Mutex as async_Mutex;
 
 #[allow(unused_imports)]
 use ffmpeg_next::{self as av, ffi::AVAudioFifo, frame::Audio as AudioFrame, media, sys};
@@ -55,26 +63,23 @@ pub struct AudioEngine {
 
 impl AudioEngine {
     pub fn new(
-        
         resampling_quality: Option<ResamplingQuality>,
         callback: Box<dyn FnMut(EngineSignal, Arc<Player>) -> ()>,
-    
-    ) -> Result<Arc<async_Mutex<Self>>, i32> 
-    
-    {
-        
+    ) -> Result<Arc<async_Mutex<Self>>, i32> {
         let m_resampling_quality = resampling_quality.unwrap_or(ResamplingQuality::High);
         singletons::set_decoder_busy(false);
 
         let host = cpal::default_host();
-        let device = host.default_output_device()
+        let device = host
+            .default_output_device()
             .expect("No output device available");
-        let config = device.default_output_config()
+        let config = device
+            .default_output_config()
             .expect("Failed to get default output config");
 
         let sample_rate = config.sample_rate() as i32;
         let channels = config.channels() as i32;
-        
+
         let buffer_ptr =
             unsafe { sys::av_audio_fifo_alloc(sys::AVSampleFormat::AV_SAMPLE_FMT_S32, 2, 100) };
         let buffer = Arc::new(Mutex::new(AudioFifo(buffer_ptr)));
@@ -95,7 +100,7 @@ impl AudioEngine {
         }
 
         let engine = AudioEngine {
-            stream: Some(build_stream(&device, config.into(), buffer.clone(), signal_tx, sample_rate.clone()).unwrap()),
+            stream: Some(build_stream(&device, config.into(), buffer.clone(), signal_tx).unwrap()),
             buffer: buffer,
             channels: channels,
             sample_rate: Arc::new(Mutex::new(sample_rate)),
@@ -118,7 +123,11 @@ impl AudioEngine {
     }
 
     ///Loads files. Automatically stops previous playback if any. Requires an arc clone of the player object because it's later passed as context to media end callback
-    pub async fn load(audio_engine: Arc<async_Mutex<Self>>, file: &str, player: Weak<Player>) -> Result<(), i32> {
+    pub async fn load(
+        audio_engine: Arc<async_Mutex<Self>>,
+        file: &str,
+        player: Weak<Player>,
+    ) -> Result<(), i32> {
         // Clear any existing playback first
         let mut engine = audio_engine.lock().await;
         engine.clear()?;
@@ -131,7 +140,7 @@ impl AudioEngine {
             _ = AudioEngine::spawn_listening_thread(
                 audio_engine.clone(),
                 engine.signal_receiver.clone(),
-                player
+                player,
             );
             engine.initialised = true;
         }
@@ -184,21 +193,17 @@ impl AudioEngine {
 
     //Plays
     pub fn play(&mut self) -> Result<(), i32> {
+        //Check if we have enough samples for playback so it doesnt cause artifacting
+        let mut size = unsafe { sys::av_audio_fifo_size(self.buffer.lock().unwrap().0) };
 
-        //Check if we have enough samples for playback so it doesnt cause artifacting    
-        let mut size = unsafe {
-            sys::av_audio_fifo_size(self.buffer.lock().unwrap().0)
-        };
-
-        let sample_rate = {self.sample_rate.lock().unwrap().clone()};
+        let sample_rate = { self.sample_rate.lock().unwrap().clone() };
         let minimum_samples = sample_rate * 5;
 
-        while size <= minimum_samples && !get_decoder_eof(){
+        while size <= minimum_samples && !get_decoder_eof() {
             let buffer = self.buffer.lock().unwrap().0;
-            size = unsafe {sys::av_audio_fifo_size(buffer)};
+            size = unsafe { sys::av_audio_fifo_size(buffer) };
             thread::sleep(Duration::from_millis(10));
         }
-        
 
         if *self.state.lock().unwrap() != PlayerState::PLAYING {
             self.stream.as_ref().unwrap().play().map_err(|_| -1)?;
@@ -222,15 +227,16 @@ impl AudioEngine {
     fn spawn_listening_thread(
         engine: Arc<async_Mutex<Self>>,
         receiver: Receiver<EngineSignal>,
-        player: Weak<Player>
+        player: Weak<Player>,
     ) -> Result<(), i32> {
-
         tokio::task::spawn_blocking(move || {
             let rt_handle = Handle::current();
 
             for signal in receiver {
                 let maybe_player = player.upgrade();
-                if maybe_player.is_none() { break; }
+                if maybe_player.is_none() {
+                    break;
+                }
                 let player_arc = maybe_player.unwrap();
                 rt_handle.block_on(async {
                     match signal {
@@ -240,9 +246,9 @@ impl AudioEngine {
                             _ = m_engine.pause();
                             _ = m_engine.clear();
                             (m_engine.callback)(EngineSignal::MediaEnd, player_arc);
-                        },
+                        }
                         EngineSignal::BufferLow => {
-                            if !get_decoder_eof() {  
+                            if !get_decoder_eof() {
                                 let m_engine = engine.lock().await;
                                 if let Some(tx) = &m_engine.tx {
                                     _ = tx.send(CMD::FillBuffer);
@@ -254,12 +260,10 @@ impl AudioEngine {
             }
         });
 
-
         Ok(())
     }
 
     pub fn seek(&mut self, time_s: f64) -> Result<(), i32> {
-
         loop {
             let state = self.state.lock().unwrap();
 
@@ -272,12 +276,10 @@ impl AudioEngine {
             }
         }
 
-        let is_paused = { 
-            *self.state.lock().unwrap() == PlayerState::PAUSED 
-        };
+        let is_paused = { *self.state.lock().unwrap() == PlayerState::PAUSED };
 
         _ = self.pause();
-        
+
         {
             let decoder = self.decoder.lock().unwrap();
             decoder
@@ -289,7 +291,7 @@ impl AudioEngine {
 
         {
             let mut decoder = self.decoder.lock().unwrap();
-                        
+
             let target_ts = (time_s * 1_000_000.0) as i64;
 
             _ = decoder
@@ -311,39 +313,13 @@ impl AudioEngine {
         set_decoder_eof(false);
         _ = tx.send(CMD::Resume);
         set_played((time_s * (*self.sample_rate.lock().unwrap() as f64)) as u64);
-        
+
         if !is_paused {
             _ = self.play();
         }
 
         Ok(())
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
-
-
-
-
-
-
-
-
-
 
     // <- DECODING LOGIC ->
     fn spawn_decoder_thread(&mut self, rx: Receiver<CMD>) -> Result<(), i32> {
@@ -427,9 +403,12 @@ impl AudioEngine {
                         .expect("Failed to setup soxr");
 
                     //Prime the resampler. At higher quality levels there's artifacting at the start due to lack of previous data
-                    let silence: Vec<[i32; 2]> = vec![[0, 0]; (m_decoder.decoder.rate()) as usize]; 
-                    let mut dummy_output: Vec<[i32; 2]> = vec![[0, 0]; (m_decoder.decoder.rate()) as usize];
-                    _ = m_decoder.soxr_resampler.process(&silence, &mut dummy_output);
+                    let silence: Vec<[i32; 2]> = vec![[0, 0]; (m_decoder.decoder.rate()) as usize];
+                    let mut dummy_output: Vec<[i32; 2]> =
+                        vec![[0, 0]; (m_decoder.decoder.rate()) as usize];
+                    _ = m_decoder
+                        .soxr_resampler
+                        .process(&silence, &mut dummy_output);
 
                     let mut state = state_handle.lock().unwrap();
                     *state = PlayerState::INITIALISED;
@@ -439,18 +418,19 @@ impl AudioEngine {
                         decoder_handle.clone(),
                         sample_rate_handle.clone(),
                         buffer_handle.clone(),
-                        target_buffer_size
+                        target_buffer_size,
                     );
-                }
-                else if let CMD::Resume = cmd {
-                    _ = decode(decoder_handle.clone(), sample_rate_handle.clone(), buffer_handle.clone(), target_buffer_size);
-                }
-                else if let CMD::FillBuffer = cmd {
+                } else if let CMD::Resume = cmd {
+                    _ = decode(
+                        decoder_handle.clone(),
+                        sample_rate_handle.clone(),
+                        buffer_handle.clone(),
+                        target_buffer_size,
+                    );
+                } else if let CMD::FillBuffer = cmd {
+                    let current_size =
+                        unsafe { sys::av_audio_fifo_size(buffer_handle.lock().unwrap().0) };
 
-                    let current_size = unsafe { 
-                        sys::av_audio_fifo_size(buffer_handle.lock().unwrap().0) 
-                    };
-                    
                     if current_size < low_water_mark && !get_decoder_eof() {
                         _ = decode(
                             decoder_handle.clone(),
@@ -482,21 +462,20 @@ unsafe impl Send for AudioEngine {}
 unsafe impl Sync for AudioEngine {}
 
 fn build_stream(
-        device: &cpal::Device,
-        config: cpal::StreamConfig,
-        buffer: Arc<Mutex<AudioFifo>>,
-        signal_tx: Sender<EngineSignal>,
-        device_sample_rate: i32,
-    ) -> Result<Stream, i32> {
-        
-        let stream = device.build_output_stream(
+    device: &cpal::Device,
+    config: cpal::StreamConfig,
+    buffer: Arc<Mutex<AudioFifo>>,
+    signal_tx: Sender<EngineSignal>,
+) -> Result<Stream, i32> {
+    let stream = device
+        .build_output_stream(
             &config,
             move |data: &mut [i32], _: &cpal::OutputCallbackInfo| {
                 unsafe {
                     let buffer_guard = match buffer.lock() {
                         Ok(guard) => guard,
                         Err(_) => {
-                            // Lock contention - zero fill
+                            // Lock contention, zero fill
                             data.fill(0);
                             return;
                         }
@@ -513,11 +492,8 @@ fn build_stream(
 
                     if frames_to_read > 0 {
                         let mut data_ptrs = [data.as_mut_ptr() as *mut c_void];
-                        let got = sys::av_audio_fifo_read(
-                            fifo,
-                            data_ptrs.as_mut_ptr(),
-                            frames_to_read,
-                        );
+                        let got =
+                            sys::av_audio_fifo_read(fifo, data_ptrs.as_mut_ptr(), frames_to_read);
 
                         if got > 0 {
                             add_played(got as u64);
@@ -527,7 +503,8 @@ fn build_stream(
                             if vol != 1.0 {
                                 for sample in &mut data[..((got as usize) * 2)] {
                                     let s = *sample as f32;
-                                    *sample = (s * vol).clamp(i32::MIN as f32, i32::MAX as f32) as i32;
+                                    *sample =
+                                        (s * vol).clamp(i32::MIN as f32, i32::MAX as f32) as i32;
                                 }
                             }
 
@@ -540,11 +517,6 @@ fn build_stream(
                             data.fill(0);
                         }
 
-                        // Check for EOF
-                        if get_decoder_eof() && got < (device_sample_rate / 100) { //I dont know whats the logic behind this number, i just kept printing `got` until the audio ended
-                            _ = signal_tx.try_send(EngineSignal::MediaEnd);
-                        }
-
                         // Check for low buffer
                         if available < (config.sample_rate as i32 * 5) && !get_decoder_eof() {
                             _ = signal_tx.try_send(EngineSignal::BufferLow);
@@ -552,14 +524,20 @@ fn build_stream(
                     } else {
                         data.fill(0);
                     }
+
+                    // Check for EOF. The decoder is done AND the buffer is fully drained.
+                    let remaining = sys::av_audio_fifo_size(fifo);
+                    if get_decoder_eof() && remaining == 0 {
+                        _ = signal_tx.try_send(EngineSignal::MediaEnd);
+                    }
                 }
             },
             |err| {
                 eprintln!("Stream error: {}", err);
             },
             None,
-        ).map_err(|_| -1)?;
+        )
+        .map_err(|_| -1)?;
 
-        Ok(stream)
-    }
-
+    Ok(stream)
+}

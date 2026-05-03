@@ -1,9 +1,9 @@
+use crate::aurex::{Player, PlayerCallback};
+use crate::enums::{EngineSignal, PlayerError, ResamplingQuality};
+use std::collections::VecDeque;
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::collections::VecDeque;
-use crate::aurex::{Player, PlayerCallback};
-use crate::enums::{ResamplingQuality, EngineSignal, PlayerError};
 
 // === GLOBAL STATE ===
 static PLAYER: OnceLock<Arc<Player>> = OnceLock::new();
@@ -32,9 +32,7 @@ impl PlayerCallback for FFICallback {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn player_new(resampling_quality: i32) -> i32 {
-    let rt = RUNTIME.get_or_init(|| {
-        tokio::runtime::Runtime::new().unwrap()
-    });
+    let rt = RUNTIME.get_or_init(|| tokio::runtime::Runtime::new().unwrap());
 
     rt.block_on(async {
         let quality = match resampling_quality {
@@ -158,9 +156,7 @@ pub extern "C" fn player_get_duration() -> f64 {
     };
 
     let rt = RUNTIME.get().unwrap();
-    rt.block_on(async {
-        player.get_duration().await
-    })
+    rt.block_on(async { player.get_duration().await })
 }
 
 #[unsafe(no_mangle)]
@@ -187,9 +183,7 @@ pub extern "C" fn player_get_volume() -> f32 {
     };
 
     let rt = RUNTIME.get().unwrap();
-    rt.block_on(async {
-        player.get_volume().await
-    })
+    rt.block_on(async { player.get_volume().await })
 }
 
 #[unsafe(no_mangle)]
@@ -200,7 +194,5 @@ pub extern "C" fn player_set_volume(volume: f32) {
     };
 
     let rt = RUNTIME.get().unwrap();
-    rt.block_on(async {
-        player.set_volume(volume).await
-    });
+    rt.block_on(async { player.set_volume(volume).await });
 }

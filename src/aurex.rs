@@ -1,20 +1,15 @@
 //This is an ffi safe public api wrapper
 use crate::{
-    engine::{AudioEngine},
-    enums::ResamplingQuality,
-    enums::EngineSignal,
-    enums::PlayerError
+    engine::AudioEngine, enums::EngineSignal, enums::PlayerError, enums::ResamplingQuality,
 };
 
-use std::{
-    sync::Arc
-};
+use std::sync::Arc;
 
 use tokio::sync::Mutex as async_Mutex;
 
 #[derive(uniffi::Object)]
 pub struct Player {
-    engine: Arc<async_Mutex<AudioEngine>>
+    engine: Arc<async_Mutex<AudioEngine>>,
 }
 
 #[uniffi::export(callback_interface)]
@@ -26,25 +21,24 @@ pub trait PlayerCallback: Send + Sync {
 
 #[uniffi::export]
 impl Player {
-
     #[uniffi::constructor]
-    pub async fn create (
-
+    pub async fn create(
         resampling_quality: Option<ResamplingQuality>,
-        callback: Box<dyn PlayerCallback>
-
+        callback: Box<dyn PlayerCallback>,
     ) -> Result<Arc<Self>, PlayerError> {
-
-        let engine = AudioEngine::new(resampling_quality, Box::new(move |signal, arc| {
-            callback.on_player_event(signal, arc);
-        }));
+        let engine = AudioEngine::new(
+            resampling_quality,
+            Box::new(move |signal, arc| {
+                callback.on_player_event(signal, arc);
+            }),
+        );
         if engine.is_err() {
             return Err(PlayerError::Code(engine.err().unwrap_or(-1)));
         }
 
-        Ok(
-            Arc::new(Player { engine: engine.unwrap() })
-        )
+        Ok(Arc::new(Player {
+            engine: engine.unwrap(),
+        }))
     }
 
     pub async fn get_duration(&self) -> f64 {
@@ -101,31 +95,27 @@ impl Player {
     pub async fn set_volume(&self, volume: f32) {
         let engine = self.engine.lock().await;
         let mut m_volume = volume;
-        if m_volume > 1.0 {m_volume = 1.0;}
+        if m_volume > 1.0 {
+            m_volume = 1.0;
+        }
         engine.set_volume(m_volume);
     }
 }
 
-
 ///Rust only impl block
 impl Player {
-
     //Rust only constructor with closures
     pub fn new(
-
         resampling_quality: Option<ResamplingQuality>,
-        callback: Box<dyn FnMut(EngineSignal, Arc<Player>) -> ()>
-
+        callback: Box<dyn FnMut(EngineSignal, Arc<Player>) -> ()>,
     ) -> Result<Arc<Self>, PlayerError> {
-
         let engine = AudioEngine::new(resampling_quality, callback);
         if engine.is_err() {
             return Err(PlayerError::Code(engine.err().unwrap_or(-1)));
         }
 
-        Ok(
-            Arc::new(Player { engine: engine.unwrap() })
-        )
+        Ok(Arc::new(Player {
+            engine: engine.unwrap(),
+        }))
     }
-
 }
